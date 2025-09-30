@@ -25,6 +25,10 @@ from email_feature_engine import (
 
 DEFAULT_MODEL_PATH = Path("models/spam_classifier_model.joblib")
 DEFAULT_ALLOWED_SUFFIXES = (".eml",)
+# 根据用户实际环境配置默认的输入目录或文件
+DEFAULT_INPUT_PATHS: Tuple[Path, ...] = (
+    Path(r"E:\毕业项目\测试邮件"),
+)
 
 
 def _iter_input_paths(inputs: Sequence[str]) -> Iterable[Path]:
@@ -138,7 +142,7 @@ def _format_results(
 
 
 def predict_emails(
-    inputs: Sequence[str | Path],
+    inputs: Sequence[str | Path] | None = None,
     *,
     model_path: str | Path = DEFAULT_MODEL_PATH,
     bucket_size: int = BUCKET_SIZE,
@@ -169,6 +173,9 @@ def predict_emails(
         每封邮件对应一个结果字典，包含 ``source``、``prediction``，如模型
         支持概率输出还会包含 ``probabilities`` 字段。
     """
+
+    if inputs is None:
+        inputs = DEFAULT_INPUT_PATHS
 
     if not inputs:
         raise ValueError("inputs 不能为空")
@@ -215,3 +222,7 @@ def predict_emails(
             print(f"预测结果已保存至: {output_path}")
 
     return results
+
+
+if __name__ == "__main__":
+    predict_emails()
