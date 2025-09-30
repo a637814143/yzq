@@ -1,23 +1,13 @@
 """使用训练好的模型对 .eml 邮件进行预测。
 
-本脚本重用 ``email_feature_engine`` 包中已经实现的解析与特征提取
-流程，从原始邮件文本构造与训练阶段一致的特征向量，再交由
-``joblib`` 保存的模型进行推理。
-
-示例用法::
-
-    python scripts/email识别.py \
-        --model path/to/spam_classifier_model.joblib \
-        --inputs path/to/email_dir another_email.eml
-
-默认情况下，脚本会遍历 ``--inputs`` 指定的目录/文件，过滤出 ``.eml``
-文件，并将预测结果打印到控制台。如需写入 JSON 文件，可使用
-``--output`` 选项。
+脚本提供 ``predict_emails`` 函数，可在其它 Python 代码中直接调用，
+无需依赖命令行参数解析。函数会重用 ``email_feature_engine`` 包中已经
+实现的解析与特征提取流程，从原始邮件文本构造与训练阶段一致的
+特征向量，再交由 ``joblib`` 保存的模型进行推理。
 """
 
 from __future__ import annotations
 
-import argparse
 import json
 import sys
 from pathlib import Path
@@ -147,77 +137,81 @@ def _format_results(
     return results
 
 
-def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="使用训练好的模型识别垃圾邮件")
-    parser.add_argument(
-        "--model",
-        type=Path,
-        default=DEFAULT_MODEL_PATH,
-        help=f"模型文件路径（默认: {DEFAULT_MODEL_PATH}）",
-    )
-    parser.add_argument(
-        "--inputs",
-        nargs="+",
-        required=True,
-        help="待识别的邮件文件或目录，可指定多个",
-    )
-    parser.add_argument(
-        "--bucket-size",
-        type=int,
-        default=BUCKET_SIZE,
-        help="向量化时使用的哈希桶大小，应与训练阶段保持一致",
-    )
-    parser.add_argument(
-        "--allowed-suffixes",
-        nargs="*",
-        default=DEFAULT_ALLOWED_SUFFIXES,
-        help="仅处理指定扩展名的文件，留空表示不过滤",
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=None,
-        help="可选：将预测结果保存为 JSON 文件",
-    )
-    return parser.parse_args(argv)
+def predict_emails(
+    inputs: Sequence[str | Path],
+    *,
+    model_path: str | Path = DEFAULT_MODEL_PATH,
+    bucket_size: int = BUCKET_SIZE,
+    allowed_suffixes: Sequence[str] | None = DEFAULT_ALLOWED_SUFFIXES,
+    output_path: str | Path | None = None,
+    emit_console: bool = True,
+) -> List[dict]:
+    """识别 ``inputs`` 中的邮件并返回结果列表。
 
+    参数
+    ----
+    inputs:
+        待识别的邮件文件或目录，可混合传入；目录会被递归遍历。
+    model_path:
+        训练好的 ``joblib`` 模型路径。
+    bucket_size:
+        特征向量化时使用的哈希桶大小，应与训练阶段保持一致。
+    allowed_suffixes:
+        允许处理的文件扩展名序列；传入 ``None`` 表示不过滤。
+    output_path:
+        若提供，则会将预测结果写入对应的 JSON 文件。
+    emit_console:
+        为 ``True`` 时会在控制台打印可读的预测信息。
 
-def main(argv: Sequence[str] | None = None) -> int:
-    args = parse_args(argv)
+    返回
+    ----
+    list of dict
+        每封邮件对应一个结果字典，包含 ``source``、``prediction``，如模型
+        支持概率输出还会包含 ``probabilities`` 字段。
+    """
 
-    model = _load_model(args.model)
+    if not inputs:
+        raise ValueError("inputs 不能为空")
 
-    allowed_suffixes: Tuple[str, ...] | None
-    if args.allowed_suffixes:
-        allowed_suffixes = tuple(s.lower() for s in args.allowed_suffixes)
+    path_inputs = list(inputs)
+
+    model = _load_model(Path(model_path))
+
+    if allowed_suffixes is not None:
+        normalized_suffixes: Tuple[str, ...] | None = tuple(
+            suffix.lower() for suffix in allowed_suffixes
+        )
     else:
-        allowed_suffixes = None
+        normalized_suffixes = None
 
-    candidates = list(_iter_input_paths(args.inputs))
-    targets = [p for p in candidates if _should_process(p, allowed_suffixes)]
+    candidates = list(_iter_input_paths(path_inputs))
+    targets = [p for p in candidates if _should_process(p, normalized_suffixes)]
 
     if not targets:
-        raise SystemExit("未找到任何匹配的邮件文件")
+        raise FileNotFoundError("未找到任何匹配的邮件文件")
 
     paths, features, _ = _collect_features(targets)
-    matrix = _vectorize(features, bucket_size=args.bucket_size)
+    matrix = _vectorize(features, bucket_size=bucket_size)
 
     predictions, probabilities = _predict(model, matrix)
     classes = getattr(model, "classes_", None)
     results = _format_results(paths, predictions, probabilities, classes)
 
-    for item in results:
-        label = item["prediction"]
-        human_readable = "垃圾邮件" if str(label) in {"1", "True"} or label == 1 else "正常邮件"
-        print(f"{item['source']}: {human_readable}")
+    if emit_console:
+        for item in results:
+            label = item["prediction"]
+            human_readable = (
+                "垃圾邮件" if str(label) in {"1", "True"} or label == 1 else "正常邮件"
+            )
+            print(f"{item['source']}: {human_readable}")
 
-    if args.output is not None:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"预测结果已保存至: {args.output}")
+    if output_path is not None:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(
+            json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        if emit_console:
+            print(f"预测结果已保存至: {output_path}")
 
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+    return results
