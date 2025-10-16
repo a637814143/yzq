@@ -15,7 +15,7 @@ import joblib
 
 
 # ===== 用户需根据自己的文件位置修改以下常量 =====
-MODEL_PATH = Path(r"E:\毕业设计\新测试\spam_classifier_model.joblib")
+MODEL_PATH = Path(r"E:\毕业设计\新测试\支持向量机SVM算法\svm_model.joblib")
 # 若模型内部已包含特征提取环节，可保持 ``None``。
 VECTORIZER_PATH: Path | None = None
 # 可以填写若干文件或目录；留空时默认从标准输入读取。
