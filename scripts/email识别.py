@@ -23,11 +23,11 @@ from email_feature_engine import (
 )
 
 
-DEFAULT_MODEL_PATH = Path("E:\毕业设计\新测试\spam_classifier_model.joblib")
+DEFAULT_MODEL_PATH = Path("E:\毕业设计\新测试\逻辑回归算法模型\spam_classifier_model.joblib")
 DEFAULT_ALLOWED_SUFFIXES = (".eml",)
 # 根据用户实际环境配置默认的输入目录或文件
 DEFAULT_INPUT_PATHS: Tuple[Path, ...] = (
-    Path(r"E:\毕业设计\邮件集\datacon2023-spoof-email-main\day1"),
+    Path(r"E:\毕业设计\邮件集\datacon2023-spoof-email-main\day2"),
 )
 
 
