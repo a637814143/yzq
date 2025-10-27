@@ -26,7 +26,7 @@ from email_feature_engine import (
 )
 
 
-DEFAULT_MODEL_PATH = Path("E:\毕业设计\新测试\逻辑回归算法模型\spam_classifier_model.joblib")
+DEFAULT_MODEL_PATH = Path("E:\毕业设计\新测试\支持向量机SVM算法\svm_model.joblib")
 # 解析不同邮件类型所使用的函数映射。
 Parser = Callable[[Path], List[dict]]
 
@@ -54,16 +54,36 @@ def _parse_csv_file(path: Path) -> List[dict]:
     return parsed_rows
 
 
+def _parse_txt_file(path: Path) -> List[dict]:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+
+    payload = {
+        "path": str(path),
+        "subject": "",
+        "from": "",
+        "to": [],
+        "body": text,
+        "raw": text,
+        "attachments": 0,
+    }
+
+    return [payload]
+
+
 PARSER_REGISTRY: Dict[str, Parser] = {
     ".eml": _parse_eml_file,
     ".json": _parse_json_file,
     ".csv": _parse_csv_file,
+    ".txt": _parse_txt_file,
 }
 
 DEFAULT_ALLOWED_SUFFIXES = tuple(PARSER_REGISTRY.keys())
 # 根据用户实际环境配置默认的输入目录或文件
 DEFAULT_INPUT_PATHS: Tuple[Path, ...] = (
-    Path(r"E:\毕业设计\邮件集\datacon2023-spoof-email-main\day2"),
+    Path(r"E:\毕业设计\邮件集\datacon2023-spoof-email-main\day1"),
 )
 
 
