@@ -54,10 +54,30 @@ def _parse_csv_file(path: Path) -> List[dict]:
     return parsed_rows
 
 
+def _parse_txt_file(path: Path) -> List[dict]:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+
+    payload = {
+        "path": str(path),
+        "subject": "",
+        "from": "",
+        "to": [],
+        "body": text,
+        "raw": text,
+        "attachments": 0,
+    }
+
+    return [payload]
+
+
 PARSER_REGISTRY: Dict[str, Parser] = {
     ".eml": _parse_eml_file,
     ".json": _parse_json_file,
     ".csv": _parse_csv_file,
+    ".txt": _parse_txt_file,
 }
 
 DEFAULT_ALLOWED_SUFFIXES = tuple(PARSER_REGISTRY.keys())
