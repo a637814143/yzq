@@ -1,4 +1,4 @@
-"""使用训练好的模型对 .eml 邮件进行预测。
+"""使用训练好的模型对多种格式的邮件文件进行预测。
 
 脚本提供 ``predict_emails`` 函数，可在其它 Python 代码中直接调用，
 无需依赖命令行参数解析。函数会重用 ``email_feature_engine`` 包中已经
@@ -8,23 +8,59 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import sys
 from pathlib import Path
-from typing import Iterable, List, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, Sequence, Tuple
 
 import joblib
 
 from email_feature_engine import (
     BUCKET_SIZE,
+    parse_csv_row,
     extract_text_features,
     parse_eml,
+    parse_json,
     vectorize_feature_list,
 )
 
 
 DEFAULT_MODEL_PATH = Path("E:\毕业设计\新测试\逻辑回归算法模型\spam_classifier_model.joblib")
-DEFAULT_ALLOWED_SUFFIXES = (".eml",)
+# 解析不同邮件类型所使用的函数映射。
+Parser = Callable[[Path], List[dict]]
+
+
+def _parse_eml_file(path: Path) -> List[dict]:
+    return [parse_eml(str(path))]
+
+
+def _parse_json_file(path: Path) -> List[dict]:
+    return [parse_json(str(path))]
+
+
+def _parse_csv_file(path: Path) -> List[dict]:
+    with path.open("r", encoding="utf-8-sig", newline="") as fh:
+        reader = csv.DictReader(fh)
+        parsed_rows: List[dict] = []
+        for idx, row in enumerate(reader, start=1):
+            parsed = parse_csv_row(row)
+            parsed.setdefault("path", f"{path}#row={idx}")
+            parsed_rows.append(parsed)
+
+    if not parsed_rows:
+        raise ValueError("CSV 文件未包含任何数据行")
+
+    return parsed_rows
+
+
+PARSER_REGISTRY: Dict[str, Parser] = {
+    ".eml": _parse_eml_file,
+    ".json": _parse_json_file,
+    ".csv": _parse_csv_file,
+}
+
+DEFAULT_ALLOWED_SUFFIXES = tuple(PARSER_REGISTRY.keys())
 # 根据用户实际环境配置默认的输入目录或文件
 DEFAULT_INPUT_PATHS: Tuple[Path, ...] = (
     Path(r"E:\毕业设计\邮件集\datacon2023-spoof-email-main\day2"),
@@ -56,30 +92,48 @@ def _should_process(path: Path, allowed_suffixes: Tuple[str, ...] | None) -> boo
     return path.suffix.lower() in allowed_suffixes
 
 
-def _collect_features(paths: Sequence[Path]) -> Tuple[List[Path], List[dict], List[str]]:
+def _resolve_parser(path: Path) -> Parser:
+    suffix = path.suffix.lower()
+    parser = PARSER_REGISTRY.get(suffix)
+    if parser is None:
+        raise ValueError(f"暂不支持的邮件文件类型: {suffix or '<无扩展名>'}")
+    return parser
+
+
+def _collect_features(paths: Sequence[Path]) -> Tuple[List[str], List[dict], List[str]]:
     """Parse邮件并提取特征。
 
     返回值包含三部分：
 
-    - 成功处理的源文件 ``Path`` 列表；
+    - 成功处理的源文件标识 ``str`` 列表；
     - 与每个源文件对应的特征 ``dict``；
     - 处理失败的文件路径（用于告警）。
     """
 
-    processed: List[Path] = []
+    processed: List[str] = []
     features: List[dict] = []
     failures: List[str] = []
 
     for path in paths:
         try:
-            parsed = parse_eml(str(path))
-            feat = extract_text_features(parsed)
-            # 保留原始路径便于溯源；向量化时会忽略该字段。
-            feat["path"] = str(path)
-            features.append(feat)
-            processed.append(path)
+            parser = _resolve_parser(path)
+            parsed_payloads = parser(path)
         except Exception as exc:  # pragma: no cover - 仅用于错误提示
             failures.append(f"{path}: {exc}")
+            continue
+
+        for payload in parsed_payloads:
+            try:
+                source = str(payload.get("path") or path)
+                normalized = dict(payload)
+                normalized["path"] = source
+                feat = extract_text_features(normalized)
+                # 保留原始路径便于溯源；向量化时会忽略该字段。
+                feat["path"] = source
+                features.append(feat)
+                processed.append(source)
+            except Exception as exc:  # pragma: no cover - 仅用于错误提示
+                failures.append(f"{source}: {exc}")
 
     if failures:
         print(
@@ -120,15 +174,15 @@ def _predict(model, features_matrix):
 
 
 def _format_results(
-    paths: Sequence[Path],
+    sources: Sequence[str],
     predictions,
     probabilities,
     classes: Sequence | None,
 ):
     results = []
-    for idx, (path, label) in enumerate(zip(paths, predictions)):
+    for idx, (source, label) in enumerate(zip(sources, predictions)):
         entry = {
-            "source": str(path),
+            "source": source,
             "prediction": int(label) if isinstance(label, (bool, int, float)) else label,
         }
         if probabilities is not None:
@@ -197,12 +251,12 @@ def predict_emails(
     if not targets:
         raise FileNotFoundError("未找到任何匹配的邮件文件")
 
-    paths, features, _ = _collect_features(targets)
+    sources, features, _ = _collect_features(targets)
     matrix = _vectorize(features, bucket_size=bucket_size)
 
     predictions, probabilities = _predict(model, matrix)
     classes = getattr(model, "classes_", None)
-    results = _format_results(paths, predictions, probabilities, classes)
+    results = _format_results(sources, predictions, probabilities, classes)
 
     if emit_console:
         for item in results:
