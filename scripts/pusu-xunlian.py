@@ -26,7 +26,7 @@ from sklearn.naive_bayes import BernoulliNB, MultinomialNB
 
 # 默认路径，可通过环境变量覆盖
 DEFAULT_FEATURES_PATH = Path(
-    os.environ.get("NB_FEATURES_PATH", r"E:\\毕业设计\\新测试\\email_features.npy")
+    os.environ.get("NB_FEATURES_PATH", r"E:\\毕业设计\\新测试\新的\\email_features.npy")
 )
 DEFAULT_LABELS_PATH = Path(
     os.environ.get("NB_LABELS_PATH", r"E:\\毕业设计\\trec06c\\full\\index")

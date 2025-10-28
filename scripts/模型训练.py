@@ -61,9 +61,9 @@ def run_training_from_npy(features_npy: str, labels_txt: str, model_output: str 
 # 主函数
 def main():
     # 设置特征文件路径、标签文件路径以及模型保存路径
-    features_npy = r"E:\毕业设计\新测试\email_features.npy"  # 特征文件路径
+    features_npy = r"E:\毕业设计\新测试\新的\email_features.npy"  # 特征文件路径
     labels_txt = r"E:\毕业设计\trec06c\full\index"  # 标签文件路径
-    model_output_path = r"E:\毕业设计\新测试\spam_classifier_model.joblib"  # 模型保存路径
+    model_output_path = r"E:\毕业设计\新测试\逻辑回归算法模型\luoji_model.joblib"  # 模型保存路径
 
     try:
         # 运行训练并保存模型

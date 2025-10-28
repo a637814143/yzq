@@ -25,7 +25,7 @@ from sklearn.svm import LinearSVC, SVC
 
 # 默认路径（可根据需要修改或通过环境变量覆盖）
 DEFAULT_FEATURES_PATH = Path(
-    os.environ.get("SVM_FEATURES_PATH", r"E:\\毕业设计\\新测试\\email_features.npy")
+    os.environ.get("SVM_FEATURES_PATH", r"E:\\毕业设计\\新测试\\新的\\email_features.npy")
 )
 DEFAULT_LABELS_PATH = Path(
     os.environ.get("SVM_LABELS_PATH", r"E:\\毕业设计\\trec06c\\full\\index")
