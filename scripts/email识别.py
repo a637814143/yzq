@@ -83,7 +83,7 @@ PARSER_REGISTRY: Dict[str, Parser] = {
 DEFAULT_ALLOWED_SUFFIXES = tuple(PARSER_REGISTRY.keys())
 # 根据用户实际环境配置默认的输入目录或文件
 DEFAULT_INPUT_PATHS: Tuple[Path, ...] = (
-    Path(r"E:\毕业设计\邮件集\datacon2023-spoof-email-main\day1"),
+    Path(r"E:\毕业设计\邮件集\datacon2023-spoof-email-main\day2"),
 )
 
 
