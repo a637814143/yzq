@@ -32,8 +32,8 @@ INPUT_DIR    = r"E:\毕业设计\trec06c\data"
 LABEL_FILE   = r"E:\毕业设计\trec06c\full\index"
 
 # 输出
-OUTPUT_JSONL = r"E:\毕业设计\新测试\email_features.jsonl"
-OUTPUT_NPY   = r"E:\毕业设计\新测试\email_features.npy"
+OUTPUT_JSONL = r"E:\毕业设计\新测试\新的\email_features.jsonl"
+OUTPUT_NPY   = r"E:\毕业设计\新测试\新的\email_features.npy"
 BUCKET_SIZE  = 1024
 
 # 扫描是否递归
