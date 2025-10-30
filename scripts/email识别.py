@@ -269,7 +269,21 @@ def predict_emails(
     targets = [p for p in candidates if _should_process(p, normalized_suffixes)]
 
     if not targets:
-        raise FileNotFoundError("未找到任何匹配的邮件文件")
+        suffix_hint = (
+            "、".join(normalized_suffixes)
+            if normalized_suffixes
+            else "所有文件"
+        )
+        scanned_examples = "\n".join(
+            f"- {path}" for path in candidates[:5]
+        ) or "(未扫描到任何文件，请检查输入路径是否正确)"
+        raise FileNotFoundError(
+            "未找到任何匹配的邮件文件。\n"
+            f"请确认输入路径包含扩展名为：{suffix_hint} 的文件。\n"
+            "若需识别其它格式，可通过 allowed_suffixes 参数传入允许的后缀。\n"
+            "已扫描的文件示例：\n"
+            f"{scanned_examples}"
+        )
 
     sources, features, _ = _collect_features(targets)
     matrix = _vectorize(features, bucket_size=bucket_size)
