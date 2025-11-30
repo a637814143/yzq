@@ -167,11 +167,20 @@ def train_naive_bayes(
             return MultinomialNB(alpha=nb_alpha, fit_prior=fit_prior)
         return BernoulliNB(alpha=nb_alpha, fit_prior=fit_prior, binarize=binarize)
 
+    default_alpha_grid = [0.1, 0.5, 1.0, 1.5]
     chosen_alpha = alpha
-    if alpha_grid:
+    active_alpha_grid = alpha_grid
+    if active_alpha_grid is None:
+        active_alpha_grid = default_alpha_grid
+        print(
+            "[3/5] 未显式提供 alpha 网格，使用默认候选值 "
+            f"{','.join(str(a) for a in default_alpha_grid)} 在验证集上自动择优。",
+        )
+
+    if active_alpha_grid:
         print("[3/5] 正在基于验证集调优 alpha……")
         best_score = -1.0
-        for candidate in alpha_grid:
+        for candidate in active_alpha_grid:
             candidate_model = _instantiate(candidate)
             candidate_model.fit(X_train_scaled, y_train)
             preds = candidate_model.predict(X_valid_scaled)
@@ -183,13 +192,19 @@ def train_naive_bayes(
 
         print(f"选择验证集表现最佳的 alpha={chosen_alpha:g} (加权 F1={best_score:0.4f})")
     else:
-        print("[3/5] 未提供 alpha 网格，直接使用命令行 alpha。")
+        print("[3/5] 已明确关闭 alpha 网格搜索，将直接使用命令行 alpha。")
 
     print("[4/5] 正在初始化并训练模型……")
     model = _instantiate(chosen_alpha)
     print(f"已选择 {model.__class__.__name__}，alpha={chosen_alpha:g}。")
 
+    print(
+        "朴素贝叶斯是闭式解，一次拟合即可收敛；"
+        "此前的 partial_fit 多轮循环会重复累加同一批数据，反而可能拉低指标，"
+        "因此改为单次 fit 以确保统计量正确。"
+    )
     model.fit(X_train_scaled, y_train)
+
     print("[5/5] 模型训练完成。")
 
     return model, scaler, X_valid_scaled, y_valid, X_test_scaled, y_test
@@ -301,10 +316,13 @@ def _parse_binarize(value: str) -> float | None:
 
 
 def _parse_alpha_grid(value: str | None) -> list[float] | None:
-    """解析 ``--alpha-grid`` 的候选列表。"""
+    """解析 ``--alpha-grid`` 的候选列表，允许传入 ``none`` 关闭搜索。"""
 
     if not value:
         return None
+
+    if value.strip().lower() == "none":
+        return []
 
     parts = [part.strip() for part in value.split(",") if part.strip()]
     if not parts:
@@ -375,6 +393,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help=(
             "逗号分隔的 alpha 候选列表，"
             "如 0.1,0.5,1.0；若提供则会基于验证集选择效果最佳的 alpha。"
+            "\n- 默认自动使用 0.1,0.5,1.0,1.5 进行搜索"
+            "\n- 传入 none 可关闭搜索并强制使用 --alpha"
         ),
     )
     parser.add_argument(
