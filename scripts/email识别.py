@@ -169,17 +169,27 @@ def _collect_features(paths: Sequence[Path]) -> Tuple[List[str], List[dict], Lis
     return processed, features, failures
 
 
-def _vectorize(features: Sequence[dict], bucket_size: int):
+def _vectorize(features: Sequence[dict], bucket_size: int, scaler=None):
     """将特征 ``dict`` 转换为模型可接受的 numpy 数组。"""
 
-    matrix, _ = vectorize_feature_list(list(features), bucket_size=bucket_size)
+    matrix, _, _ = vectorize_feature_list(list(features), bucket_size=bucket_size)
+    # 如果提供了scaler，应用标准化
+    if scaler is not None:
+        matrix = scaler.transform(matrix)
     return matrix
 
 
 def _load_model(path: Path):
+    """加载模型，支持新格式（包含scaler）和旧格式（仅模型）。"""
     if not path.exists():
         raise FileNotFoundError(f"未找到模型文件: {path}")
-    return joblib.load(path)
+    loaded = joblib.load(path)
+    
+    # 检查是否是包含model和scaler的字典
+    if isinstance(loaded, dict) and 'model' in loaded and 'scaler' in loaded:
+        return loaded['model'], loaded['scaler']
+    # 旧格式：直接返回模型，scaler为None
+    return loaded, None
 
 
 def _predict(model, features_matrix):
@@ -256,7 +266,7 @@ def predict_emails(
 
     path_inputs = list(inputs)
 
-    model = _load_model(Path(model_path))
+    model, scaler = _load_model(Path(model_path))
 
     if allowed_suffixes is not None:
         normalized_suffixes: Tuple[str, ...] | None = tuple(
@@ -272,7 +282,7 @@ def predict_emails(
         raise FileNotFoundError("未找到任何匹配的邮件文件")
 
     sources, features, _ = _collect_features(targets)
-    matrix = _vectorize(features, bucket_size=bucket_size)
+    matrix = _vectorize(features, bucket_size=bucket_size, scaler=scaler)
 
     predictions, probabilities = _predict(model, matrix)
     classes = getattr(model, "classes_", None)

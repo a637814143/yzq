@@ -22,6 +22,7 @@ import numpy as np
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.model_selection import train_test_split
 from sklearn.naive_bayes import BernoulliNB, MultinomialNB
+from sklearn.preprocessing import MinMaxScaler
 
 
 # 默认路径，可通过环境变量覆盖
@@ -98,7 +99,7 @@ def train_naive_bayes(
     validation_size: float,
     test_size: float,
     random_state: int,
-) -> tuple[object, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[object, MinMaxScaler, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """训练朴素贝叶斯分类器并返回模型及验证/测试集。"""
 
     if validation_size <= 0 or test_size <= 0:
@@ -136,18 +137,30 @@ def train_naive_bayes(
         f"训练集 {len(y_train)} 样本，验证集 {len(y_valid)} 样本，测试集 {len(y_test)} 样本。",
     )
 
-    print("[2/4] 正在初始化模型……")
+    print("[2/4] 正在缩放特征（MinMaxScaler，确保非负值）……")
+    # MultinomialNB 需要非负值，使用 MinMaxScaler 而不是 StandardScaler
+    scaler = MinMaxScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_valid_scaled = scaler.transform(X_valid)
+    X_test_scaled = scaler.transform(X_test)
+    # 确保没有负值（MinMaxScaler 应该已经保证，但双重检查）
+    X_train_scaled = np.maximum(X_train_scaled, 0)
+    X_valid_scaled = np.maximum(X_valid_scaled, 0)
+    X_test_scaled = np.maximum(X_test_scaled, 0)
+    print("特征缩放完成（值范围: 0-1）。")
+
+    print("[3/4] 正在初始化模型……")
     if model_type == "multinomial":
         model = MultinomialNB(alpha=alpha, fit_prior=fit_prior)
     else:
         model = BernoulliNB(alpha=alpha, fit_prior=fit_prior, binarize=binarize)
     print(f"已选择 {model.__class__.__name__}。")
 
-    print("[3/4] 正在训练模型……")
-    model.fit(X_train, y_train)
+    print("[4/5] 正在训练模型……")
+    model.fit(X_train_scaled, y_train)
     print("模型训练完成。")
 
-    return model, X_valid, y_valid, X_test, y_test
+    return model, scaler, X_valid_scaled, y_valid, X_test_scaled, y_test
 
 
 def _format_metric_block(
@@ -232,13 +245,19 @@ def evaluate_and_report(
     )
 
 
-def save_model(model, model_output: Path | str) -> None:
-    """保存训练好的模型到指定路径。"""
+def save_model(model, scaler: MinMaxScaler, model_output: Path | str) -> None:
+    """保存训练好的模型和标准化器到指定路径。"""
 
     output_path = _ensure_path(model_output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(model, output_path)
-    print(f"模型已保存至: {output_path}")
+    
+    # 保存模型和标准化器
+    model_data = {
+        'model': model,
+        'scaler': scaler
+    }
+    joblib.dump(model_data, output_path)
+    print(f"模型和标准化器已保存至: {output_path}")
 
 
 def _parse_binarize(value: str) -> float | None:
@@ -370,7 +389,7 @@ def main(argv: list[str] | None = None) -> None:
         X, y = load_dataset(features_path, labels_path)
         print(f"数据加载完成：特征矩阵形状 {X.shape}，标签数量 {y.size}。")
 
-        model, X_valid, y_valid, X_test, y_test = train_naive_bayes(
+        model, scaler, X_valid, y_valid, X_test, y_test = train_naive_bayes(
             X,
             y,
             model_type=args.model_type,
@@ -389,7 +408,7 @@ def main(argv: list[str] | None = None) -> None:
             X_test=X_test,
             y_test=y_test,
         )
-        save_model(model, model_output_path)
+        save_model(model, scaler, model_output_path)
     except (ValueError, FileNotFoundError, IsADirectoryError) as exc:
         print(f"错误: {exc}")
         sys.exit(1)

@@ -20,6 +20,7 @@ from sklearn.base import BaseEstimator
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 from sklearn.svm import LinearSVC, SVC
 
 
@@ -171,7 +172,14 @@ def train_svm_classifier(
         f"完成数据划分，用时 {split_elapsed:.2f} 秒。训练 {len(y_train)}，验证 {len(y_valid)}，测试 {len(y_test)}。"
     )
 
-    print("[2/5] 正在初始化模型……")
+    print("[2/5] 正在标准化特征……")
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_valid_scaled = scaler.transform(X_valid)
+    X_test_scaled = scaler.transform(X_test)
+    print("特征标准化完成。")
+
+    print("[3/5] 正在初始化模型……")
     init_start = time.perf_counter()
     n_samples, n_features = X_train.shape
 
@@ -208,22 +216,22 @@ def train_svm_classifier(
     init_elapsed = time.perf_counter() - init_start
     print(f"模型初始化完成，用时 {init_elapsed:.2f} 秒。")
 
-    print("[3/5] 正在训练模型……")
+    print("[4/5] 正在训练模型……")
     train_start = time.perf_counter()
     with PeriodicStatusPrinter("模型训练", interval=progress_interval):
-        model.fit(X_train, y_train)
+        model.fit(X_train_scaled, y_train)
     train_elapsed = time.perf_counter() - train_start
     print(f"模型训练完成，用时 {train_elapsed:.2f} 秒。")
 
-    print("[4/5] 正在评估模型效果（验证集）……")
+    print("[5/6] 正在评估模型效果（验证集）……")
     eval_start = time.perf_counter()
-    y_valid_pred = model.predict(X_valid)
+    y_valid_pred = model.predict(X_valid_scaled)
     valid_elapsed = time.perf_counter() - eval_start
     print(f"验证集评估完成，用时 {valid_elapsed:.2f} 秒。")
 
-    print("[5/5] 正在评估模型效果（测试集）……")
+    print("[6/6] 正在评估模型效果（测试集）……")
     test_start = time.perf_counter()
-    y_test_pred = model.predict(X_test)
+    y_test_pred = model.predict(X_test_scaled)
     test_elapsed = time.perf_counter() - test_start
     print(f"测试集评估完成，用时 {test_elapsed:.2f} 秒。")
 
@@ -232,7 +240,7 @@ def train_svm_classifier(
             "提示：启用了概率输出，SVC 需要额外的交叉验证来估计概率，这会显著增加训练时间。"
         )
 
-    return model, y_valid, y_valid_pred, y_test, y_test_pred
+    return model, scaler, y_valid, y_valid_pred, y_test, y_test_pred
 
 
 def _format_metric_block(
@@ -314,8 +322,8 @@ def evaluate_and_report(
     )
 
 
-def save_model(model: BaseEstimator, model_output: Path | str) -> None:
-    """将训练好的模型保存到指定路径。"""
+def save_model(model: BaseEstimator, scaler: StandardScaler, model_output: Path | str) -> None:
+    """将训练好的模型和标准化器保存到指定路径。"""
 
     output_path = _ensure_path(model_output)
     if output_path.is_dir():
@@ -324,8 +332,14 @@ def save_model(model: BaseEstimator, model_output: Path | str) -> None:
         )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(model, output_path)
-    print(f"模型已保存至: {output_path}")
+    
+    # 保存模型和标准化器
+    model_data = {
+        'model': model,
+        'scaler': scaler
+    }
+    joblib.dump(model_data, output_path)
+    print(f"模型和标准化器已保存至: {output_path}")
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -480,7 +494,7 @@ def main(argv: list[str] | None = None) -> None:
             print(
                 "注意：LinearSVC 需要额外的概率校准过程，训练时间可能变长。"
             )
-        model, y_valid, y_valid_pred, y_test, y_test_pred = train_svm_classifier(
+        model, scaler, y_valid, y_valid_pred, y_test, y_test_pred = train_svm_classifier(
             X,
             y,
             probability=args.probability,
@@ -499,7 +513,7 @@ def main(argv: list[str] | None = None) -> None:
             y_test=y_test,
             y_test_pred=y_test_pred,
         )
-        save_model(model, model_output_path)
+        save_model(model, scaler, model_output_path)
     except (ValueError, FileNotFoundError, IsADirectoryError) as exc:
         print(f"错误: {exc}")
         sys.exit(1)

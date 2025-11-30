@@ -199,7 +199,7 @@ def main():
         return
 
     if OUTPUT_NPY:
-        X, header = vectorize_feature_list(valid, bucket_size=BUCKET_SIZE)
+        X, header, _ = vectorize_feature_list(valid, bucket_size=BUCKET_SIZE)
         np.save(OUTPUT_NPY, X)
         print(f"🔢 已保存向量：{OUTPUT_NPY}，shape={X.shape}")
 

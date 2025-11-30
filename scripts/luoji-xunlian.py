@@ -22,6 +22,7 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 
 
 # 默认路径，可通过环境变量覆盖
@@ -89,7 +90,7 @@ def train_logistic_regression(
     test_size: float,
     random_state: int,
     class_weight: str | None,
-) -> tuple[LogisticRegression, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[LogisticRegression, StandardScaler, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """训练逻辑回归分类器并返回模型、验证集与测试集。
 
     默认按照 70% 训练、15% 验证、15% 测试划分；如需调整可通过
@@ -132,7 +133,14 @@ def train_logistic_regression(
         f"训练集 {len(y_train)} 样本，验证集 {len(y_valid)} 样本，测试集 {len(y_test)} 样本。"
     )
 
-    print("[2/4] 正在初始化模型……")
+    print("[2/4] 正在标准化特征……")
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_valid_scaled = scaler.transform(X_valid)
+    X_test_scaled = scaler.transform(X_test)
+    print("特征标准化完成。")
+
+    print("[3/4] 正在初始化模型……")
     _validate_solver_penalty_combination(solver, penalty)
 
     model = LogisticRegression(
@@ -140,17 +148,17 @@ def train_logistic_regression(
         penalty=penalty,
         solver=solver,
         max_iter=max_iter,
-        class_weight=class_weight,
+        class_weight=class_weight if class_weight else None,
         n_jobs=-1,
         random_state=random_state,
     )
     print(f"已选择 solver={solver}, penalty={penalty}, C={C}。")
 
-    print("[3/4] 正在训练模型……")
-    model.fit(X_train, y_train)
+    print("[4/5] 正在训练模型……")
+    model.fit(X_train_scaled, y_train)
     print("模型训练完成。")
 
-    return model, X_valid, y_valid, X_test, y_test
+    return model, scaler, X_valid_scaled, y_valid, X_test_scaled, y_test
 
 
 def _validate_solver_penalty_combination(solver: str, penalty: str) -> None:
@@ -252,13 +260,23 @@ def evaluate_and_report(
     )
 
 
-def save_model(model: LogisticRegression, model_output: Path | str) -> None:
-    """保存训练好的模型到指定路径。"""
+def save_model(
+    model: LogisticRegression, 
+    scaler: StandardScaler,
+    model_output: Path | str
+) -> None:
+    """保存训练好的模型和标准化器到指定路径。"""
 
     output_path = _ensure_path(model_output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(model, output_path)
-    print(f"模型已保存至: {output_path}")
+    
+    # 保存模型和标准化器
+    model_data = {
+        'model': model,
+        'scaler': scaler
+    }
+    joblib.dump(model_data, output_path)
+    print(f"模型和标准化器已保存至: {output_path}")
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -324,8 +342,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--class-weight",
         choices=("balanced",),
-        default=None,
-        help="类别权重设置。传入 balanced 可按频率自动调整。",
+        default="balanced",
+        help="类别权重设置。传入 balanced 可按频率自动调整（默认启用，推荐用于不平衡数据）。",
     )
     parser.add_argument(
         "--validation-size",
@@ -379,7 +397,7 @@ def main(argv: list[str] | None = None) -> None:
         X, y = load_dataset(features_path, labels_path)
         print(f"数据加载完成：特征矩阵形状 {X.shape}，标签数量 {y.size}。")
 
-        model, X_valid, y_valid, X_test, y_test = train_logistic_regression(
+        model, scaler, X_valid, y_valid, X_test, y_test = train_logistic_regression(
             X,
             y,
             C=args.C,
@@ -399,7 +417,7 @@ def main(argv: list[str] | None = None) -> None:
             X_test=X_test,
             y_test=y_test,
         )
-        save_model(model, model_output_path)
+        save_model(model, scaler, model_output_path)
     except (ValueError, FileNotFoundError, IsADirectoryError) as exc:
         print(f"错误: {exc}")
         sys.exit(1)

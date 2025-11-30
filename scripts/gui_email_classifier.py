@@ -177,7 +177,7 @@ class EmailClassifierApp(tk.Tk):
                 "attachments": 0,
             }
         feat_dict = text_features.extract_text_features(parsed)
-        X, _ = vectorization.vectorize_feature_list([feat_dict])
+        X, _, _ = vectorization.vectorize_feature_list([feat_dict])
         return X, {"preview": body_preview, "parsed": parsed}
 
     def _positive_probability(self, model: object, X: np.ndarray) -> float:
@@ -200,9 +200,15 @@ class EmailClassifierApp(tk.Tk):
     def _load_model(self, path: Path):
         if path in self.loaded_models:
             return self.loaded_models[path]
-        model = joblib.load(path)
-        self.loaded_models[path] = model
-        return model
+        loaded = joblib.load(path)
+        # 检查是否是包含model和scaler的字典
+        if isinstance(loaded, dict) and 'model' in loaded and 'scaler' in loaded:
+            model_data = {'model': loaded['model'], 'scaler': loaded['scaler']}
+        else:
+            # 旧格式：直接是模型，scaler为None
+            model_data = {'model': loaded, 'scaler': None}
+        self.loaded_models[path] = model_data
+        return model_data
 
     def _run_inference(self) -> None:
         manual_text = self.manual_text.get("1.0", "end").strip()
@@ -227,7 +233,12 @@ class EmailClassifierApp(tk.Tk):
 
         try:
             X, meta = self._load_email_features(email_path, manual_text)
-            model = self._load_model(model_path)
+            model_data = self._load_model(model_path)
+            model = model_data['model']
+            scaler = model_data['scaler']
+            # 如果模型使用了scaler，应用标准化
+            if scaler is not None:
+                X = scaler.transform(X)
             pred = int(model.predict(X)[0])
             proba = self._positive_probability(model, X)
         except Exception as exc:  # noqa: BLE001
