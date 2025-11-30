@@ -26,7 +26,7 @@ from email_feature_engine import (
 )
 
 
-DEFAULT_MODEL_PATH = Path("E:\毕业设计\新测试\朴素贝叶斯\\nb_model.joblib")
+DEFAULT_MODEL_PATH = Path("E:\毕业设计\朴素贝叶斯识别\results\model.txt")
 # 解析不同邮件类型所使用的函数映射。
 Parser = Callable[[Path], List[dict]]
 
@@ -83,7 +83,7 @@ PARSER_REGISTRY: Dict[str, Parser] = {
 DEFAULT_ALLOWED_SUFFIXES = tuple(PARSER_REGISTRY.keys())
 # 根据用户实际环境配置默认的输入目录或文件
 DEFAULT_INPUT_PATHS: Tuple[Path, ...] = (
-    Path(r"C:\Users\Lenovo\Downloads\您最近的_Steam_交易.eml"),
+    Path(r"E:\毕业设计\邮件集\datacon2023-spoof-email-main\day3"),
 )
 
 
