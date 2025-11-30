@@ -229,6 +229,9 @@ def train_svm_classifier(
     print(f"模型初始化完成，用时 {init_elapsed:.2f} 秒。")
 
     print("[4/6] 正在训练模型……")
+    print(
+        f"收敛容忍度 tol={tol:g}：当优化改进低于该阈值时停止迭代，可搭配 --max-iter 控制迭代上限。"
+    )
     if max_iter == -1:
         print(
             "已取消迭代次数上限，优化将根据收敛容忍度自动停止，确保充分训练。"
@@ -442,7 +445,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--tol",
         type=float,
         default=1e-4,
-        help="优化停止的容忍度，数值越小越精确，但训练可能更慢。",
+        help=(
+            "优化停止的收敛容忍度，当损失改进或 KKT 违反程度低于该阈值时视为收敛。"
+            "\n- 数值越小，拟合越精确；但需要更多迭代，训练可能更慢。"
+        ),
     )
     parser.add_argument(
         "--validation-size",
