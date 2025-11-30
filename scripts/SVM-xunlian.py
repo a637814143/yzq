@@ -241,6 +241,10 @@ def train_svm_classifier(
         iter_values = np.atleast_1d(n_iter_info)
         iter_text = ", ".join(str(int(value)) for value in iter_values)
         print(f"实际迭代轮次: {iter_text}")
+    else:
+        print(
+            "本次训练的底层估计器未暴露 n_iter_ 属性，迭代次数由 max_iter/收敛容忍度决定。"
+        )
 
     print("[5/6] 正在评估模型效果（验证集）……")
     eval_start = time.perf_counter()
