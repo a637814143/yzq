@@ -13,9 +13,6 @@ import numpy as np
 from email_feature_engine import parser as email_parser
 from email_feature_engine import text_features, vectorization
 
-DEFAULT_LR_MODEL = Path(
-    os.environ.get("LR_MODEL_OUTPUT", r"E:\\毕业设计\\新测试\\逻辑回归算法模型\\lr_model.joblib")
-)
 DEFAULT_NB_MODEL = Path(
     os.environ.get("NB_MODEL_OUTPUT", r"E:\\毕业设计\\新测试\\朴素贝叶斯\\nb_model.joblib")
 )
@@ -23,11 +20,10 @@ DEFAULT_SVM_MODEL = Path(
     os.environ.get("SVM_MODEL_OUTPUT", r"E:\\毕业设计\\新测试\\支持向量机SVM算法\\svm_model.joblib")
 )
 
-# 三模型融合的权重（朴素贝叶斯 50%，SVM 25%，逻辑回归 25%）
+# 双模型融合的权重（朴素贝叶斯 60%，SVM 40%）
 MODEL_WEIGHTS: dict[str, float] = {
-    "朴素贝叶斯模型": 0.5,
-    "SVM 模型": 0.25,
-    "逻辑回归模型": 0.25,
+    "朴素贝叶斯模型": 0.6,
+    "SVM 模型": 0.4,
 }
 
 
@@ -41,7 +37,6 @@ class EmailClassifierApp(tk.Tk):
 
         self.selected_email: Path | None = None
         self.model_paths: dict[str, Path] = {
-            "逻辑回归模型": DEFAULT_LR_MODEL,
             "朴素贝叶斯模型": DEFAULT_NB_MODEL,
             "SVM 模型": DEFAULT_SVM_MODEL,
         }
@@ -56,7 +51,7 @@ class EmailClassifierApp(tk.Tk):
             self,
             text=(
                 "上传邮件（.eml/.txt/.text 等文本）或直接粘贴邮件正文，"
-                "支持三模型加权融合：朴素贝叶斯 50%，SVM 25%，逻辑回归 25%"
+                "支持双模型加权融合：朴素贝叶斯 60%，SVM 40%"
             ),
             font=("微软雅黑", 12, "bold"),
         )
@@ -78,11 +73,11 @@ class EmailClassifierApp(tk.Tk):
         self.manual_text = tk.Text(text_frame, height=6, wrap="word", font=("等线", 11))
         self.manual_text.pack(fill="x", padx=6, pady=4)
 
-        model_frame = ttk.LabelFrame(self, text="3. 模型路径（默认加权融合）")
+        model_frame = ttk.LabelFrame(self, text="3. 模型路径（默认双模型加权融合）")
         model_frame.pack(fill="x", **padding)
         ttk.Label(
             model_frame,
-            text="将按 50% 朴素贝叶斯 + 25% SVM + 25% 逻辑回归 进行融合。",
+            text="将按 60% 朴素贝叶斯 + 40% SVM 进行融合。",
         ).grid(row=0, column=0, columnspan=3, sticky="w", padx=6, pady=(4, 6))
 
         self.model_labels: dict[str, ttk.Label] = {}
@@ -90,7 +85,6 @@ class EmailClassifierApp(tk.Tk):
             [
                 ("朴素贝叶斯", "朴素贝叶斯模型"),
                 ("SVM", "SVM 模型"),
-                ("逻辑回归", "逻辑回归模型"),
             ]
         ):
             ttk.Label(model_frame, text=f"{name} 模型路径:").grid(
@@ -118,7 +112,7 @@ class EmailClassifierApp(tk.Tk):
         self.result_box.pack(fill="both", expand=True, **padding)
         self.result_box.insert(
             "1.0",
-            "结果将在此显示。请先上传邮件文件或粘贴文本（文本文件可直接选择），然后点击测试执行三模型融合预测。\n",
+            "结果将在此显示。请先上传邮件文件或粘贴文本（文本文件可直接选择），然后点击测试执行双模型融合预测。\n",
         )
         self.result_box.config(state="disabled")
 
@@ -270,7 +264,7 @@ class EmailClassifierApp(tk.Tk):
 
         lines = [
             "================ 预测结果（加权融合） ================",
-            "融合权重: 朴素贝叶斯 50% | SVM 25% | 逻辑回归 25%",
+            "融合权重: 朴素贝叶斯 60% | SVM 40%",
             f"输入来源: {source_desc}",
             f"判定: {label_text} | 概率: {percentage:0.2f}%",
             "",
