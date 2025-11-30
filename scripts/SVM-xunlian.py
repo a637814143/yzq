@@ -428,7 +428,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-iter",
         type=int,
-        default=1000,
+        default=15,
         help=(
             "设定优化的最大迭代次数。"
             "\n- 对 LinearSVC 与 SVC 均生效，设置为 -1 表示不限制。"
