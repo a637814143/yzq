@@ -277,7 +277,7 @@ def evaluate_and_report(
 
 
 def save_model(
-    model: LogisticRegression, 
+    model: LogisticRegression,
     scaler: StandardScaler,
     model_output: Path | str
 ) -> None:
@@ -286,10 +286,14 @@ def save_model(
     output_path = _ensure_path(model_output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
-    # 保存模型和标准化器
+    # 保存模型、标准化器以及输入维度元数据，便于推理时校验特征维度是否一致
     model_data = {
-        'model': model,
-        'scaler': scaler
+        "model": model,
+        "scaler": scaler,
+        "metadata": {
+            "n_features": getattr(model, "n_features_in_", None),
+            "scaler": scaler.__class__.__name__,
+        },
     }
     joblib.dump(model_data, output_path)
     print(f"模型和标准化器已保存至: {output_path}")

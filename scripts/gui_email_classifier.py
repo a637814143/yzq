@@ -201,12 +201,16 @@ class EmailClassifierApp(tk.Tk):
         if path in self.loaded_models:
             return self.loaded_models[path]
         loaded = joblib.load(path)
-        # 检查是否是包含model和scaler的字典
-        if isinstance(loaded, dict) and 'model' in loaded and 'scaler' in loaded:
-            model_data = {'model': loaded['model'], 'scaler': loaded['scaler']}
+        # 检查是否是包含 model/scaler/metadata 的新格式
+        if isinstance(loaded, dict) and "model" in loaded and "scaler" in loaded:
+            model_data = {
+                "model": loaded["model"],
+                "scaler": loaded.get("scaler"),
+                "metadata": loaded.get("metadata", {}),
+            }
         else:
-            # 旧格式：直接是模型，scaler为None
-            model_data = {'model': loaded, 'scaler': None}
+            # 旧格式：直接是模型，scaler 为 None；缺少元数据时推理前会提示
+            model_data = {"model": loaded, "scaler": None, "metadata": {}}
         self.loaded_models[path] = model_data
         return model_data
 
@@ -243,6 +247,20 @@ class EmailClassifierApp(tk.Tk):
                 model_data = self._load_model(model_path)
                 model = model_data["model"]
                 scaler = model_data["scaler"]
+                meta = model_data.get("metadata", {})
+                expected_dim = meta.get("n_features")
+                if expected_dim is not None and X.shape[1] != expected_dim:
+                    raise ValueError(
+                        f"模型 {model_key} 期望特征维度为 {expected_dim}，"
+                        f"但当前提取得到 {X.shape[1]}。请确认训练和推理使用的特征提取配置一致。"
+                    )
+                if scaler is None:
+                    self._append_message(
+                        (
+                            f"⚠️ 模型 {model_key} 缺少标准化器，预测可能与训练不一致，"
+                            "建议重新训练生成包含 scaler 的模型文件。\n"
+                        )
+                    )
                 X_scaled = scaler.transform(X) if scaler is not None else X
                 proba = self._positive_probability(model, X_scaled)
                 pred = int(model.predict(X_scaled)[0])
