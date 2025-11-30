@@ -73,7 +73,9 @@ def _parse_txt_file(path: Path) -> List[dict]:
     return [payload]
 
 
+# 将无扩展名的文件视作 ``.eml``，便于处理 TREC06C 等数据集。
 PARSER_REGISTRY: Dict[str, Parser] = {
+    "": _parse_eml_file,
     ".eml": _parse_eml_file,
     ".json": _parse_json_file,
     ".csv": _parse_csv_file,
@@ -245,7 +247,8 @@ def predict_emails(
     bucket_size:
         特征向量化时使用的哈希桶大小，应与训练阶段保持一致。
     allowed_suffixes:
-        允许处理的文件扩展名序列；传入 ``None`` 表示不过滤。
+        允许处理的文件扩展名序列（默认包含无扩展名，按 ``.eml`` 解析）；传入
+        ``None`` 表示不过滤。
     output_path:
         若提供，则会将预测结果写入对应的 JSON 文件。
     emit_console:

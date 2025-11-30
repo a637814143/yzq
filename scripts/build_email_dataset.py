@@ -32,8 +32,10 @@ INPUT_DIR    = r"E:\毕业设计\trec06c\data"
 LABEL_FILE   = r"E:\毕业设计\trec06c\full\index"
 
 # 输出
-OUTPUT_JSONL = r"E:\毕业设计\新测试\新的\email_features.jsonl"
-OUTPUT_NPY   = r"E:\毕业设计\新测试\新的\email_features.npy"
+OUTPUT_JSONL      = r"E:\毕业设计\新测试\新的\email_features.jsonl"
+OUTPUT_NPY        = r"E:\毕业设计\新测试\新的\email_features.npy"
+OUTPUT_LABELS_TXT = r"E:\毕业设计\新测试\新的\email_labels.txt"
+OUTPUT_LABELS_NPY = r"E:\毕业设计\新测试\新的\email_labels.npy"
 BUCKET_SIZE  = 1024
 
 # 扫描是否递归
@@ -120,7 +122,7 @@ def main():
         raise FileNotFoundError(f"未找到输入目录：{INPUT_DIR}")
 
     # 输出目录准备
-    for out in (OUTPUT_JSONL, OUTPUT_NPY):
+    for out in (OUTPUT_JSONL, OUTPUT_NPY, OUTPUT_LABELS_TXT, OUTPUT_LABELS_NPY):
         if out:
             Path(out).parent.mkdir(parents=True, exist_ok=True)
 
@@ -138,6 +140,8 @@ def main():
         return
 
     feats = []
+    labeled_feats: List[Dict[str, Any]] = []
+    labels: List[int] = []
     miss, ok = 0, 0
     outf = open(OUTPUT_JSONL, "w", encoding="utf-8") if OUTPUT_JSONL else None
 
@@ -167,10 +171,6 @@ def main():
 
             feat = extract_text_features(parsed)  # 生成特征字典
 
-            # —— 按需移除 path 字段 —— #
-            if "path" in feat:
-                del feat["path"]
-
             # 写入标签（未命中则 -1，便于你后续统计）
             feat["label"] = int(label) if label is not None else -1
 
@@ -180,6 +180,9 @@ def main():
                 ok += 1
 
             feats.append(feat)
+            if label in (0, 1):
+                labeled_feats.append(feat)
+                labels.append(int(label))
             if outf:
                 outf.write(json.dumps(feat, ensure_ascii=False) + "\n")
 
@@ -192,16 +195,34 @@ def main():
         outf.close()
         print(f"📝 已写入特征：{OUTPUT_JSONL}（有效 {ok} 条，未匹配标签 {miss} 条，含错误行已记录）")
 
+    if not labeled_feats:
+        print("❗ 没有任何带标签的样本，跳过向量化与标签导出。")
+        return
+
     # 向量化（仅当存在有效样本）
-    valid = [x for x in feats if "subject_len" in x]
-    if not valid:
+    filtered = [(f, lab) for f, lab in zip(labeled_feats, labels) if "subject_len" in f]
+    if not filtered:
         print("❗ 没有可向量化的有效特征，跳过。")
         return
+
+    valid, valid_labels = zip(*filtered)
 
     if OUTPUT_NPY:
         X, header, _ = vectorize_feature_list(valid, bucket_size=BUCKET_SIZE)
         np.save(OUTPUT_NPY, X)
         print(f"🔢 已保存向量：{OUTPUT_NPY}，shape={X.shape}")
+
+    if OUTPUT_LABELS_NPY:
+        np.save(OUTPUT_LABELS_NPY, np.array(valid_labels, dtype=np.int64))
+        print(f"🏷️  已保存标签数组：{OUTPUT_LABELS_NPY}，shape={(len(valid_labels),)}")
+
+    if OUTPUT_LABELS_TXT:
+        with open(OUTPUT_LABELS_TXT, "w", encoding="utf-8") as f:
+            for feat, lab in zip(valid, valid_labels):
+                tag = "spam" if lab == 1 else "ham"
+                src = feat.get("path") or ""
+                f.write(f"{tag} {src}\n")
+        print(f"📝 已按向量顺序保存标签文本：{OUTPUT_LABELS_TXT}")
 
 if __name__ == "__main__":
     main()
