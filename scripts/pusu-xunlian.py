@@ -19,7 +19,7 @@ from pathlib import Path
 
 import joblib
 import numpy as np
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import classification_report, confusion_matrix, f1_score
 from sklearn.model_selection import train_test_split
 from sklearn.naive_bayes import BernoulliNB, MultinomialNB
 from sklearn.preprocessing import MinMaxScaler
@@ -106,6 +106,7 @@ def train_naive_bayes(
     *,
     model_type: str,
     alpha: float,
+    alpha_grid: list[float] | None,
     fit_prior: bool,
     binarize: float | None,
     validation_size: float,
@@ -127,7 +128,7 @@ def train_naive_bayes(
     if X.shape[0] < 5:
         raise ValueError("样本数量过少，无法按照 70/15/15 划分，请提供更多数据。")
 
-    print("[1/4] 正在划分训练/验证/测试集……")
+    print("[1/5] 正在划分训练/验证/测试集……")
     X_train, X_temp, y_train, y_temp = train_test_split(
         X,
         y,
@@ -149,7 +150,7 @@ def train_naive_bayes(
         f"训练集 {len(y_train)} 样本，验证集 {len(y_valid)} 样本，测试集 {len(y_test)} 样本。",
     )
 
-    print("[2/4] 正在缩放特征（MinMaxScaler，确保非负值）……")
+    print("[2/5] 正在缩放特征（MinMaxScaler，确保非负值）……")
     # MultinomialNB 需要非负值，使用 MinMaxScaler 而不是 StandardScaler
     scaler = MinMaxScaler()
     X_train_scaled = scaler.fit_transform(X_train)
@@ -161,16 +162,35 @@ def train_naive_bayes(
     X_test_scaled = np.maximum(X_test_scaled, 0)
     print("特征缩放完成（值范围: 0-1）。")
 
-    print("[3/4] 正在初始化模型……")
-    if model_type == "multinomial":
-        model = MultinomialNB(alpha=alpha, fit_prior=fit_prior)
-    else:
-        model = BernoulliNB(alpha=alpha, fit_prior=fit_prior, binarize=binarize)
-    print(f"已选择 {model.__class__.__name__}。")
+    def _instantiate(nb_alpha: float):
+        if model_type == "multinomial":
+            return MultinomialNB(alpha=nb_alpha, fit_prior=fit_prior)
+        return BernoulliNB(alpha=nb_alpha, fit_prior=fit_prior, binarize=binarize)
 
-    print("[4/5] 正在训练模型……")
+    chosen_alpha = alpha
+    if alpha_grid:
+        print("[3/5] 正在基于验证集调优 alpha……")
+        best_score = -1.0
+        for candidate in alpha_grid:
+            candidate_model = _instantiate(candidate)
+            candidate_model.fit(X_train_scaled, y_train)
+            preds = candidate_model.predict(X_valid_scaled)
+            score = f1_score(y_valid, preds, average="weighted", zero_division=0)
+            print(f"  alpha={candidate:g} -> 验证集加权 F1={score:0.4f}")
+            if score > best_score:
+                chosen_alpha = candidate
+                best_score = score
+
+        print(f"选择验证集表现最佳的 alpha={chosen_alpha:g} (加权 F1={best_score:0.4f})")
+    else:
+        print("[3/5] 未提供 alpha 网格，直接使用命令行 alpha。")
+
+    print("[4/5] 正在初始化并训练模型……")
+    model = _instantiate(chosen_alpha)
+    print(f"已选择 {model.__class__.__name__}，alpha={chosen_alpha:g}。")
+
     model.fit(X_train_scaled, y_train)
-    print("模型训练完成。")
+    print("[5/5] 模型训练完成。")
 
     return model, scaler, X_valid_scaled, y_valid, X_test_scaled, y_test
 
@@ -262,7 +282,7 @@ def save_model(model, scaler: MinMaxScaler, model_output: Path | str) -> None:
 
     output_path = _ensure_path(model_output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     # 保存模型和标准化器
     model_data = {
         'model': model,
@@ -278,6 +298,26 @@ def _parse_binarize(value: str) -> float | None:
     if value.lower() == "none":
         return None
     return float(value)
+
+
+def _parse_alpha_grid(value: str | None) -> list[float] | None:
+    """解析 ``--alpha-grid`` 的候选列表。"""
+
+    if not value:
+        return None
+
+    parts = [part.strip() for part in value.split(",") if part.strip()]
+    if not parts:
+        return None
+
+    alphas: list[float] = []
+    for part in parts:
+        alpha = float(part)
+        if alpha < 0:
+            raise argparse.ArgumentTypeError("alpha 网格中的值必须为非负数。")
+        alphas.append(alpha)
+
+    return alphas
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -327,6 +367,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=float,
         default=1.0,
         help="拉普拉斯/李德斯通平滑参数 (alpha)。",
+    )
+    parser.add_argument(
+        "--alpha-grid",
+        type=_parse_alpha_grid,
+        default=None,
+        help=(
+            "逗号分隔的 alpha 候选列表，"
+            "如 0.1,0.5,1.0；若提供则会基于验证集选择效果最佳的 alpha。"
+        ),
     )
     parser.add_argument(
         "--fit-prior",
@@ -406,6 +455,7 @@ def main(argv: list[str] | None = None) -> None:
             y,
             model_type=args.model_type,
             alpha=args.alpha,
+            alpha_grid=args.alpha_grid,
             fit_prior=args.fit_prior,
             binarize=args.binarize,
             validation_size=args.validation_size,

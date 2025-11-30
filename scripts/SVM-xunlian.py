@@ -162,7 +162,7 @@ def train_svm_classifier(
         raise ValueError("样本数量过少，无法按照 70/15/15 划分，请提供更多数据。")
 
     stage_start = time.perf_counter()
-    print("[1/5] 正在划分训练/验证/测试集……")
+    print("[1/6] 正在划分训练/验证/测试集……")
     X_train, X_temp, y_train, y_temp = train_test_split(
         X,
         y,
@@ -184,14 +184,14 @@ def train_svm_classifier(
         f"完成数据划分，用时 {split_elapsed:.2f} 秒。训练 {len(y_train)}，验证 {len(y_valid)}，测试 {len(y_test)}。"
     )
 
-    print("[2/5] 正在标准化特征……")
+    print("[2/6] 正在标准化特征……")
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_valid_scaled = scaler.transform(X_valid)
     X_test_scaled = scaler.transform(X_test)
     print("特征标准化完成。")
 
-    print("[3/5] 正在初始化模型……")
+    print("[3/6] 正在初始化模型……")
     init_start = time.perf_counter()
     n_samples, n_features = X_train.shape
 
@@ -228,12 +228,19 @@ def train_svm_classifier(
     init_elapsed = time.perf_counter() - init_start
     print(f"模型初始化完成，用时 {init_elapsed:.2f} 秒。")
 
-    print("[4/5] 正在训练模型……")
+    print("[4/6] 正在训练模型……")
     train_start = time.perf_counter()
     with PeriodicStatusPrinter("模型训练", interval=progress_interval):
         model.fit(X_train_scaled, y_train)
     train_elapsed = time.perf_counter() - train_start
     print(f"模型训练完成，用时 {train_elapsed:.2f} 秒。")
+    n_iter_info = getattr(model, "n_iter_", None)
+    if n_iter_info is None and isinstance(model, CalibratedClassifierCV):
+        n_iter_info = getattr(model.base_estimator_, "n_iter_", None)
+    if n_iter_info is not None:
+        iter_values = np.atleast_1d(n_iter_info)
+        iter_text = ", ".join(str(int(value)) for value in iter_values)
+        print(f"实际迭代轮次: {iter_text}")
 
     print("[5/6] 正在评估模型效果（验证集）……")
     eval_start = time.perf_counter()

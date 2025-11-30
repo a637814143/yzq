@@ -166,8 +166,12 @@ def train_logistic_regression(
     )
     print(f"已选择 solver={solver}, penalty={penalty}, C={C}。")
 
-    print("[4/5] 正在训练模型……")
+    print("[4/4] 正在训练模型……")
     model.fit(X_train_scaled, y_train)
+    trained_iters = getattr(model, "n_iter_", None)
+    if trained_iters is not None:
+        iter_summary = ", ".join(str(int(val)) for val in np.atleast_1d(trained_iters))
+        print(f"实际迭代轮次: {iter_summary}")
     print("模型训练完成。")
 
     return model, scaler, X_valid_scaled, y_valid, X_test_scaled, y_test
