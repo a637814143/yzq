@@ -48,7 +48,7 @@ class EmailClassifierApp(tk.Tk):
 
         header = ttk.Label(
             self,
-            text="上传邮件（.eml/.txt），选择模型后点击“测试”查看预测与概率",
+            text="上传邮件（.eml/.txt/.text 等文本）或直接粘贴邮件正文，选择模型后点击“测试”查看预测与概率",
             font=("微软雅黑", 12, "bold"),
         )
         header.pack(anchor="w", **padding)
@@ -61,7 +61,15 @@ class EmailClassifierApp(tk.Tk):
         self.email_label = ttk.Label(file_frame, text="未选择文件")
         self.email_label.pack(side="left", padx=8)
 
-        model_frame = ttk.LabelFrame(self, text="2. 选择模型")
+        text_frame = ttk.LabelFrame(self, text="2. 粘贴邮件正文（可选）")
+        text_frame.pack(fill="both", expand=False, **padding)
+        ttk.Label(text_frame, text="可直接粘贴纯文本邮件内容，若同时提供文件则优先使用文件。 ").pack(
+            anchor="w", padx=6, pady=2
+        )
+        self.manual_text = tk.Text(text_frame, height=6, wrap="word", font=("等线", 11))
+        self.manual_text.pack(fill="x", padx=6, pady=4)
+
+        model_frame = ttk.LabelFrame(self, text="3. 选择模型")
         model_frame.pack(fill="x", **padding)
         ttk.Label(model_frame, text="模型列表：").pack(side="left", padx=6)
 
@@ -97,7 +105,7 @@ class EmailClassifierApp(tk.Tk):
         self.result_box.pack(fill="both", expand=True, **padding)
         self.result_box.insert(
             "1.0",
-            "结果将在此显示。请先选择邮件文件和模型。\n",
+            "结果将在此显示。请先上传邮件文件或粘贴文本，并选择模型后点击测试。\n",
         )
         self.result_box.config(state="disabled")
 
@@ -105,7 +113,7 @@ class EmailClassifierApp(tk.Tk):
         path = filedialog.askopenfilename(
             title="选择邮件文件",
             filetypes=[
-                ("Email / 文本", "*.eml *.txt"),
+                ("Email / 文本", "*.eml *.txt *.text *.log *.md"),
                 ("所有文件", "*.*"),
             ],
         )
@@ -140,19 +148,31 @@ class EmailClassifierApp(tk.Tk):
         self.result_box.see("end")
         self.result_box.config(state="disabled")
 
-    def _load_email_features(self, path: Path) -> tuple[np.ndarray, dict]:
-        ext = path.suffix.lower()
-        if ext == ".eml":
-            parsed = email_parser.parse_eml(str(path))
-            body_preview = parsed.get("body", "") or ""
+    def _load_email_features(self, path: Path | None, manual_text: str) -> tuple[np.ndarray, dict]:
+        if path:
+            ext = path.suffix.lower()
+            if ext == ".eml":
+                parsed = email_parser.parse_eml(str(path))
+                body_preview = parsed.get("body", "") or ""
+            else:
+                body_preview = path.read_text(encoding="utf-8", errors="ignore")
+                parsed = {
+                    "path": str(path),
+                    "subject": path.stem,
+                    "from": "",
+                    "to": [],
+                    "body": body_preview,
+                    "raw": None,
+                    "attachments": 0,
+                }
         else:
-            body_preview = path.read_text(encoding="utf-8", errors="ignore")
+            body_preview = manual_text
             parsed = {
-                "path": str(path),
-                "subject": path.stem,
+                "path": "粘贴文本",
+                "subject": "",
                 "from": "",
                 "to": [],
-                "body": body_preview,
+                "body": manual_text,
                 "raw": None,
                 "attachments": 0,
             }
@@ -185,9 +205,19 @@ class EmailClassifierApp(tk.Tk):
         return model
 
     def _run_inference(self) -> None:
-        if not self.selected_email:
-            messagebox.showwarning("缺少邮件", "请先选择要检测的邮件文件。")
+        manual_text = self.manual_text.get("1.0", "end").strip()
+        if not self.selected_email and not manual_text:
+            messagebox.showwarning("缺少邮件", "请上传邮件文件或粘贴邮件正文后再测试。")
             return
+
+        email_path = self.selected_email
+        if email_path and not email_path.exists():
+            if manual_text:
+                self._append_message("选择的邮件文件不存在，已改用粘贴文本进行检测。\n")
+                email_path = None
+            else:
+                messagebox.showerror("邮件不存在", f"未找到邮件文件: {email_path}")
+                return
 
         model_name = self.model_var.get()
         model_path = self.model_paths.get(model_name)
@@ -196,7 +226,7 @@ class EmailClassifierApp(tk.Tk):
             return
 
         try:
-            X, meta = self._load_email_features(self.selected_email)
+            X, meta = self._load_email_features(email_path, manual_text)
             model = self._load_model(model_path)
             pred = int(model.predict(X)[0])
             proba = self._positive_probability(model, X)
@@ -209,10 +239,12 @@ class EmailClassifierApp(tk.Tk):
         parsed = meta["parsed"]
         preview = (meta.get("preview") or "").strip()
 
+        source_desc = str(email_path) if email_path else "粘贴文本（未选择文件）"
+
         lines = [
             "================ 预测结果 ================",
             f"模型: {model_name} ({model_path})",
-            f"邮件文件: {self.selected_email}",
+            f"输入来源: {source_desc}",
             f"判定: {label_text} | 概率: {percentage:0.2f}%",
             "",
             "================ 邮件内容预览 ================",
