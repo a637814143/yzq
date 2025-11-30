@@ -229,6 +229,10 @@ def train_svm_classifier(
     print(f"模型初始化完成，用时 {init_elapsed:.2f} 秒。")
 
     print("[4/6] 正在训练模型……")
+    if max_iter == -1:
+        print(
+            "已取消迭代次数上限，优化将根据收敛容忍度自动停止，确保充分训练。"
+        )
     train_start = time.perf_counter()
     with PeriodicStatusPrinter("模型训练", interval=progress_interval):
         model.fit(X_train_scaled, y_train)
@@ -428,10 +432,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-iter",
         type=int,
-        default=15,
+        default=-1,
         help=(
             "设定优化的最大迭代次数。"
-            "\n- 对 LinearSVC 与 SVC 均生效，设置为 -1 表示不限制。"
+            "\n- 对 LinearSVC 与 SVC 均生效，默认 -1 表示不限制，由收敛容忍度自动停止。"
         ),
     )
     parser.add_argument(
