@@ -192,6 +192,9 @@ def train_naive_bayes(
     model.fit(X_train_scaled, y_train)
     print("[5/5] 模型训练完成。")
 
+    # 朴素贝叶斯没有迭代优化过程，fit 即为一次性完成参数估计
+    print("提示：朴素贝叶斯模型属于闭式解，无需迭代，等效为 1 次训练步骤。")
+
     return model, scaler, X_valid_scaled, y_valid, X_test_scaled, y_test
 
 
