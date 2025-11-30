@@ -30,7 +30,7 @@ DEFAULT_FEATURES_PATH = Path(
     os.environ.get("NB_FEATURES_PATH", r"E:\\毕业设计\\新测试\新的\\email_features.npy")
 )
 DEFAULT_LABELS_PATH = Path(
-    os.environ.get("NB_LABELS_PATH", r"E:\\毕业设计\\trec06c\\full\\index")
+    os.environ.get("NB_LABELS_PATH", r"E:\\毕业设计\\新测试\新的\\email_labels.txt")
 )
 DEFAULT_MODEL_OUTPUT_PATH = Path(
     os.environ.get("NB_MODEL_OUTPUT", r"E:\\毕业设计\\新测试\朴素贝叶斯\\nb_model.joblib")
@@ -53,8 +53,11 @@ def validate_paths(features_npy: Path | str, labels_txt: Path | str, model_outpu
     if not features_path.is_file():
         raise FileNotFoundError(f"未找到特征文件: {features_path}")
 
-    if not labels_path.is_file():
-        raise FileNotFoundError(f"未找到标签文件: {labels_path}")
+    inferred_labels_npy = features_path.with_name(features_path.stem + "_labels.npy")
+    if not labels_path.is_file() and not inferred_labels_npy.is_file():
+        raise FileNotFoundError(
+            f"未找到标签文件: {labels_path}，且未找到配套的 {inferred_labels_npy.name}。"
+        )
 
     if model_path.is_dir():
         raise IsADirectoryError(f"模型保存路径必须是文件而不是目录: {model_path}")
@@ -68,8 +71,17 @@ def load_dataset(features_npy: Path | str, labels_txt: Path | str) -> tuple[np.n
 
     X = np.load(features_path)
 
-    with labels_path.open("r", encoding="utf-8") as fh:
-        y = np.array([1 if line.strip().split()[0] == "spam" else 0 for line in fh])
+    labels_npy = features_path.with_name(features_path.stem + "_labels.npy")
+    if labels_npy.is_file():
+        y = np.load(labels_npy)
+    else:
+        with labels_path.open("r", encoding="utf-8") as fh:
+            y = np.array([1 if line.strip().split()[0] == "spam" else 0 for line in fh])
+
+    if X.shape[0] != len(y):
+        raise ValueError(
+            f"特征与标签数量不一致: X 有 {X.shape[0]} 行，但标签有 {len(y)} 条。"
+        )
 
     unique = np.unique(y)
     if unique.size < 2:
