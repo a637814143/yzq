@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import argparse
+import io
 import os
 import sys
 from pathlib import Path
@@ -226,7 +227,9 @@ def train_naive_bayes(
         if f1 > best_f1 + min_delta:
             best_f1 = f1
             epochs_without_improve = 0
-            best_model_bytes = joblib.dumps(model)
+            buffer = io.BytesIO()
+            joblib.dump(model, buffer)
+            best_model_bytes = buffer.getvalue()
             print("    指标提升，保存当前模型为最佳。")
         else:
             epochs_without_improve += 1
@@ -249,7 +252,7 @@ def train_naive_bayes(
             break
 
     if best_model_bytes is not None:
-        model = joblib.loads(best_model_bytes)
+        model = joblib.load(io.BytesIO(best_model_bytes))
 
     print("[5/5] 模型训练完成，并基于验证集选择了最佳轮次。")
 
