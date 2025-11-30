@@ -109,6 +109,9 @@ def train_naive_bayes(
     alpha_grid: list[float] | None,
     fit_prior: bool,
     binarize: float | None,
+    max_epochs: int,
+    patience: int,
+    min_delta: float,
     validation_size: float,
     test_size: float,
     random_state: int,
@@ -189,11 +192,66 @@ def train_naive_bayes(
     model = _instantiate(chosen_alpha)
     print(f"已选择 {model.__class__.__name__}，alpha={chosen_alpha:g}。")
 
-    model.fit(X_train_scaled, y_train)
-    print("[5/5] 模型训练完成。")
+    unlimited = max_epochs <= 0
+    if unlimited:
+        print(
+            "已取消训练轮次上限，将持续按验证集加权 F1 监测，"
+            f"当连续 {patience} 轮未提升超过 min_delta={min_delta} 时停止。"
+        )
+    else:
+        print(
+            f"最大训练轮次设为 {max_epochs}，连续 {patience} 轮未提升"
+            f"超过 min_delta={min_delta} 时提前停止。"
+        )
 
-    # 朴素贝叶斯没有迭代优化过程，fit 即为一次性完成参数估计
-    print("提示：朴素贝叶斯模型属于闭式解，无需迭代，等效为 1 次训练步骤。")
+    classes = np.unique(y_train)
+    best_f1 = -np.inf
+    best_model_bytes: bytes | None = None
+    epochs_without_improve = 0
+    epoch = 0
+    safety_cap = 5000 if unlimited else max_epochs
+
+    while True:
+        epoch += 1
+        # BernoulliNB/MultinomialNB 均支持 partial_fit，可近似“多轮训练”并监控指标
+        if epoch == 1:
+            model.partial_fit(X_train_scaled, y_train, classes=classes)
+        else:
+            model.partial_fit(X_train_scaled, y_train)
+
+        preds_valid = model.predict(X_valid_scaled)
+        f1 = f1_score(y_valid, preds_valid, average="weighted", zero_division=0)
+        print(f"  [训练轮次 {epoch}] 验证集加权 F1={f1:0.4f}")
+
+        if f1 > best_f1 + min_delta:
+            best_f1 = f1
+            epochs_without_improve = 0
+            best_model_bytes = joblib.dumps(model)
+            print("    指标提升，保存当前模型为最佳。")
+        else:
+            epochs_without_improve += 1
+            print(
+                "    指标未显著提升，连续停滞轮数:",
+                f"{epochs_without_improve}/{patience}",
+            )
+
+        if not unlimited and epoch >= max_epochs:
+            print("达到设定的最大训练轮次，停止训练。")
+            break
+        if epochs_without_improve >= patience:
+            print("验证集指标连续未提升，认为已收敛，停止训练。")
+            break
+        if unlimited and epoch >= safety_cap:
+            print(
+                "达到安全轮次上限 5000 仍未收敛，为避免无限循环强制停止；"
+                "如需继续可显式增大 --max-epochs。"
+            )
+            break
+
+    if best_model_bytes is not None:
+        model = joblib.loads(best_model_bytes)
+
+    print("[5/5] 模型训练完成，并基于验证集选择了最佳轮次。")
 
     return model, scaler, X_valid_scaled, y_valid, X_test_scaled, y_test
 
@@ -402,6 +460,28 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--max-epochs",
+        type=int,
+        default=0,
+        help=(
+            "训练轮次上限；默认 0 表示不设上限，按验证集收敛判断停止。"
+            "\n朴素贝叶斯本身无迭代优化，此处使用 partial_fit 循环监控指标，"
+            "以满足“训练到精度不再下降”的需求。"
+        ),
+    )
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=3,
+        help="验证集加权 F1 连续未提升的容忍轮数，超过则停止训练。",
+    )
+    parser.add_argument(
+        "--min-delta",
+        type=float,
+        default=0.0,
+        help="将提升视为有效改进的最小增量，避免浮点抖动造成误判。",
+    )
+    parser.add_argument(
         "--validation-size",
         type=float,
         default=0.15,
@@ -461,6 +541,9 @@ def main(argv: list[str] | None = None) -> None:
             alpha_grid=args.alpha_grid,
             fit_prior=args.fit_prior,
             binarize=args.binarize,
+            max_epochs=args.max_epochs,
+            patience=args.patience,
+            min_delta=args.min_delta,
             validation_size=args.validation_size,
             test_size=args.test_size,
             random_state=args.random_state,
