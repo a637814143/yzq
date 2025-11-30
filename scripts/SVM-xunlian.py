@@ -77,6 +77,13 @@ def load_features_and_labels(
     if unique_labels.size < 2:
         raise ValueError(f"标签文件中只有一个类别的数据，无法训练模型。唯一标签值: {unique_labels}")
 
+    class_counts = np.bincount(y)
+    if class_counts.size < 2 or np.any(class_counts < 2):
+        raise ValueError(
+            "每个类别至少需要 2 个样本才能进行分层划分。"
+            f" 当前各类别样本数: {class_counts.tolist()}"
+        )
+
     return X, y
 
 
@@ -121,19 +128,50 @@ def train_svm_classifier(
     implementation: str,
     max_iter: int,
     tol: float,
+    validation_size: float,
+    test_size: float,
+    random_state: int,
     progress_interval: float,
 ) -> BaseEstimator:
     """使用线性核 SVM 训练分类器。"""
 
+    if validation_size <= 0 or test_size <= 0:
+        raise ValueError("validation_size 与 test_size 必须为正数。")
+
+    temp_size = validation_size + test_size
+    if temp_size >= 1:
+        raise ValueError(
+            "validation_size 与 test_size 之和必须小于 1，"
+            f" 当前为 {temp_size:.2f}。"
+        )
+
+    if X.shape[0] < 5:
+        raise ValueError("样本数量过少，无法按照 70/15/15 划分，请提供更多数据。")
+
     stage_start = time.perf_counter()
-    print("[1/4] 正在划分训练/验证集……")
-    X_train, X_valid, y_train, y_valid = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
+    print("[1/5] 正在划分训练/验证/测试集……")
+    X_train, X_temp, y_train, y_temp = train_test_split(
+        X,
+        y,
+        test_size=temp_size,
+        random_state=random_state,
+        stratify=y,
+    )
+
+    validation_ratio = validation_size / temp_size
+    X_valid, X_test, y_valid, y_test = train_test_split(
+        X_temp,
+        y_temp,
+        test_size=1 - validation_ratio,
+        random_state=random_state,
+        stratify=y_temp,
     )
     split_elapsed = time.perf_counter() - stage_start
-    print(f"完成数据划分，用时 {split_elapsed:.2f} 秒。")
+    print(
+        f"完成数据划分，用时 {split_elapsed:.2f} 秒。训练 {len(y_train)}，验证 {len(y_valid)}，测试 {len(y_test)}。"
+    )
 
-    print("[2/4] 正在初始化模型……")
+    print("[2/5] 正在初始化模型……")
     init_start = time.perf_counter()
     n_samples, n_features = X_train.shape
 
@@ -170,29 +208,110 @@ def train_svm_classifier(
     init_elapsed = time.perf_counter() - init_start
     print(f"模型初始化完成，用时 {init_elapsed:.2f} 秒。")
 
-    print("[3/4] 正在训练模型……")
+    print("[3/5] 正在训练模型……")
     train_start = time.perf_counter()
     with PeriodicStatusPrinter("模型训练", interval=progress_interval):
         model.fit(X_train, y_train)
     train_elapsed = time.perf_counter() - train_start
     print(f"模型训练完成，用时 {train_elapsed:.2f} 秒。")
 
-    print("[4/4] 正在评估模型效果……")
+    print("[4/5] 正在评估模型效果（验证集）……")
     eval_start = time.perf_counter()
-    y_pred = model.predict(X_valid)
-    print("模型评估：")
-    print(classification_report(y_valid, y_pred))
-    print("混淆矩阵：")
-    print(confusion_matrix(y_valid, y_pred))
-    eval_elapsed = time.perf_counter() - eval_start
-    print(f"评估完成，用时 {eval_elapsed:.2f} 秒。")
+    y_valid_pred = model.predict(X_valid)
+    valid_elapsed = time.perf_counter() - eval_start
+    print(f"验证集评估完成，用时 {valid_elapsed:.2f} 秒。")
+
+    print("[5/5] 正在评估模型效果（测试集）……")
+    test_start = time.perf_counter()
+    y_test_pred = model.predict(X_test)
+    test_elapsed = time.perf_counter() - test_start
+    print(f"测试集评估完成，用时 {test_elapsed:.2f} 秒。")
 
     if probability and implementation == "svc" and verbose:
         print(
             "提示：启用了概率输出，SVC 需要额外的交叉验证来估计概率，这会显著增加训练时间。"
         )
 
-    return model
+    return model, y_valid, y_valid_pred, y_test, y_test_pred
+
+
+def _format_metric_block(
+    *,
+    dataset_label: str,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    positive_label: str = "垃圾邮件",
+    negative_label: str = "非垃圾邮件",
+) -> str:
+    """格式化单个数据集的评估指标，贴近示例截图的结构。"""
+
+    report = classification_report(
+        y_true,
+        y_pred,
+        target_names=[negative_label, positive_label],
+        output_dict=True,
+        zero_division=0,
+    )
+
+    accuracy = report["accuracy"]
+    precision = report["weighted avg"]["precision"]
+    recall = report["weighted avg"]["recall"]
+    f1_score = report["weighted avg"]["f1-score"]
+
+    cm = confusion_matrix(y_true, y_pred)
+    if cm.shape != (2, 2):
+        raise ValueError("混淆矩阵形状异常，期望为 2x2。")
+
+    tn, fp, fn, tp = cm.ravel()
+
+    lines = [
+        f"{dataset_label}样本数: {len(y_true)}",
+        "",
+        "==================== 模型评估结果 ====================",
+        "模型评估精度：",
+        f"Accuracy:     {accuracy:0.4f} ({accuracy * 100:5.2f}%)",
+        f"Precision:    {precision:0.4f} ({precision * 100:5.2f}%)",
+        f"Recall:       {recall:0.4f} ({recall * 100:5.2f}%)",
+        f"F1-Score:    {f1_score:0.4f} ({f1_score * 100:5.2f}%)",
+        "",
+        f"预测正确率: {accuracy:0.4f} ({accuracy * 100:5.2f}%)",
+        "",
+        "混淆矩阵:",
+        f"True Positive (预测为{positive_label}, 实际为{positive_label}): {tp}",
+        f"True Negative (预测为{negative_label}, 实际为{negative_label}): {tn}",
+        f"False Positive (预测为{positive_label}, 实际为{negative_label}): {fp}",
+        f"False Negative (预测为{negative_label}, 实际为{positive_label}): {fn}",
+    ]
+
+    return "\n".join(lines)
+
+
+def evaluate_and_report(
+    *,
+    y_valid: np.ndarray,
+    y_valid_pred: np.ndarray,
+    y_test: np.ndarray,
+    y_test_pred: np.ndarray,
+) -> None:
+    """输出验证集和测试集上的评估指标（中文，贴近示例展示风格）。"""
+
+    print("\n==================== 验证集评估 ====================")
+    print(
+        _format_metric_block(
+            dataset_label="验证集",
+            y_true=y_valid,
+            y_pred=y_valid_pred,
+        )
+    )
+
+    print("\n==================== 测试集评估 ====================")
+    print(
+        _format_metric_block(
+            dataset_label="测试集",
+            y_true=y_test,
+            y_pred=y_test_pred,
+        )
+    )
 
 
 def save_model(model: BaseEstimator, model_output: Path | str) -> None:
@@ -285,6 +404,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="优化停止的容忍度，数值越小越精确，但训练可能更慢。",
     )
     parser.add_argument(
+        "--validation-size",
+        type=float,
+        default=0.15,
+        help="验证集所占比例 (0~1)。默认 0.15，即训练/验证/测试=70/15/15。",
+    )
+    parser.add_argument(
+        "--test-size",
+        type=float,
+        default=0.15,
+        help="测试集所占比例 (0~1)。默认 0.15，即训练/验证/测试=70/15/15。",
+    )
+    parser.add_argument(
+        "--random-state",
+        type=int,
+        default=42,
+        help="随机种子，确保结果可复现。",
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help=(
@@ -343,7 +480,7 @@ def main(argv: list[str] | None = None) -> None:
             print(
                 "注意：LinearSVC 需要额外的概率校准过程，训练时间可能变长。"
             )
-        model = train_svm_classifier(
+        model, y_valid, y_valid_pred, y_test, y_test_pred = train_svm_classifier(
             X,
             y,
             probability=args.probability,
@@ -351,7 +488,16 @@ def main(argv: list[str] | None = None) -> None:
             implementation=args.implementation,
             max_iter=args.max_iter,
             tol=args.tol,
+            validation_size=args.validation_size,
+            test_size=args.test_size,
+            random_state=args.random_state,
             progress_interval=args.progress_interval,
+        )
+        evaluate_and_report(
+            y_valid=y_valid,
+            y_valid_pred=y_valid_pred,
+            y_test=y_test,
+            y_test_pred=y_test_pred,
         )
         save_model(model, model_output_path)
     except (ValueError, FileNotFoundError, IsADirectoryError) as exc:

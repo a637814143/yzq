@@ -1,13 +1,13 @@
-"""使用朴素贝叶斯算法训练垃圾邮件分类模型的脚本。
+"""使用逻辑回归算法训练垃圾邮件分类模型的脚本。
 
-该脚本与 ``SVM-xunlian.py`` 的使用方式保持一致：
+该脚本的使用方式与 ``pusu-xunlian.py`` 保持一致：
 
 * 接收 ``.npy`` 特征文件与 ``.txt`` 标签文件（spam/ham）
 * 训练完成后将模型保存为 ``.joblib`` 文件
 * 若未显式提供路径，会退回到默认值或环境变量指定的路径
 
-默认采用 :class:`sklearn.naive_bayes.MultinomialNB`，并提供若干常用超参数
-（如 ``alpha``、``fit_prior`` 等）供命令行配置。
+默认采用 :class:`sklearn.linear_model.LogisticRegression`，并暴露常用超参数
+（如 ``C``、``penalty``、``max_iter`` 等）供命令行配置。
 """
 
 from __future__ import annotations
@@ -19,20 +19,20 @@ from pathlib import Path
 
 import joblib
 import numpy as np
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.model_selection import train_test_split
-from sklearn.naive_bayes import BernoulliNB, MultinomialNB
 
 
 # 默认路径，可通过环境变量覆盖
 DEFAULT_FEATURES_PATH = Path(
-    os.environ.get("NB_FEATURES_PATH", r"E:\\毕业设计\\新测试\新的\\email_features.npy")
+    os.environ.get("LR_FEATURES_PATH", r"E:\\毕业设计\\新测试\\新的\\email_features.npy")
 )
 DEFAULT_LABELS_PATH = Path(
-    os.environ.get("NB_LABELS_PATH", r"E:\\毕业设计\\trec06c\\full\\index")
+    os.environ.get("LR_LABELS_PATH", r"E:\\毕业设计\\trec06c\\full\\index")
 )
 DEFAULT_MODEL_OUTPUT_PATH = Path(
-    os.environ.get("NB_MODEL_OUTPUT", r"E:\\毕业设计\\新测试\朴素贝叶斯\\nb_model.joblib")
+    os.environ.get("LR_MODEL_OUTPUT", r"E:\\毕业设计\\新测试\\逻辑回归算法模型\\lr_model.joblib")
 )
 
 
@@ -72,10 +72,7 @@ def load_dataset(features_npy: Path | str, labels_txt: Path | str) -> tuple[np.n
 
     unique = np.unique(y)
     if unique.size < 2:
-        raise ValueError(
-            "标签文件中仅包含一个类别，无法训练模型。"
-            f" 唯一标签值: {unique}"
-        )
+        raise ValueError("标签文件中仅包含一个类别，无法训练模型。" f" 唯一标签值: {unique}")
 
     class_counts = np.bincount(y)
     if class_counts.size < 2 or np.any(class_counts < 2):
@@ -87,19 +84,24 @@ def load_dataset(features_npy: Path | str, labels_txt: Path | str) -> tuple[np.n
     return X, y
 
 
-def train_naive_bayes(
+def train_logistic_regression(
     X: np.ndarray,
     y: np.ndarray,
     *,
-    model_type: str,
-    alpha: float,
-    fit_prior: bool,
-    binarize: float | None,
+    C: float,
+    penalty: str,
+    solver: str,
+    max_iter: int,
     validation_size: float,
     test_size: float,
     random_state: int,
-) -> tuple[object, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """训练朴素贝叶斯分类器并返回模型及验证/测试集。"""
+    class_weight: str | None,
+) -> tuple[LogisticRegression, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """训练逻辑回归分类器并返回模型、验证集与测试集。
+
+    默认按照 70% 训练、15% 验证、15% 测试划分；如需调整可通过
+    ``validation_size`` 与 ``test_size`` 修改，二者之和需小于 1。
+    """
 
     if validation_size <= 0 or test_size <= 0:
         raise ValueError("validation_size 与 test_size 必须为正数。")
@@ -111,10 +113,11 @@ def train_naive_bayes(
             f" 当前为 {temp_size:.2f}。"
         )
 
+    print("[1/4] 正在划分训练/验证/测试集……")
+
     if X.shape[0] < 5:
         raise ValueError("样本数量过少，无法按照 70/15/15 划分，请提供更多数据。")
 
-    print("[1/4] 正在划分训练/验证/测试集……")
     X_train, X_temp, y_train, y_temp = train_test_split(
         X,
         y,
@@ -132,22 +135,50 @@ def train_naive_bayes(
         random_state=random_state,
     )
     print(
-        "完成数据划分：",
-        f"训练集 {len(y_train)} 样本，验证集 {len(y_valid)} 样本，测试集 {len(y_test)} 样本。",
+        "完成数据划分："
+        f"训练集 {len(y_train)} 样本，验证集 {len(y_valid)} 样本，测试集 {len(y_test)} 样本。"
     )
 
     print("[2/4] 正在初始化模型……")
-    if model_type == "multinomial":
-        model = MultinomialNB(alpha=alpha, fit_prior=fit_prior)
-    else:
-        model = BernoulliNB(alpha=alpha, fit_prior=fit_prior, binarize=binarize)
-    print(f"已选择 {model.__class__.__name__}。")
+    _validate_solver_penalty_combination(solver, penalty)
+
+    model = LogisticRegression(
+        C=C,
+        penalty=penalty,
+        solver=solver,
+        max_iter=max_iter,
+        class_weight=class_weight,
+        n_jobs=-1,
+        random_state=random_state,
+    )
+    print(f"已选择 solver={solver}, penalty={penalty}, C={C}。")
 
     print("[3/4] 正在训练模型……")
     model.fit(X_train, y_train)
     print("模型训练完成。")
 
     return model, X_valid, y_valid, X_test, y_test
+
+
+def _validate_solver_penalty_combination(solver: str, penalty: str) -> None:
+    """确保 ``solver`` 与 ``penalty`` 组合合法，提前阻断 sklearn 运行时错误。"""
+
+    compatible = {
+        "lbfgs": {"l2", "none"},
+        "newton-cg": {"l2", "none"},
+        "liblinear": {"l1", "l2"},
+        "saga": {"l1", "l2", "elasticnet", "none"},
+    }
+
+    allowed = compatible.get(solver)
+    if allowed is None:
+        raise ValueError(f"未知求解器: {solver}")
+
+    if penalty not in allowed:
+        readable = ", ".join(sorted(allowed))
+        raise ValueError(
+            f"求解器 {solver} 与 penalty={penalty} 不兼容。可选: {readable}。"
+        )
 
 
 def _format_metric_block(
@@ -202,7 +233,7 @@ def _format_metric_block(
 
 
 def evaluate_and_report(
-    model,
+    model: LogisticRegression,
     *,
     X_valid: np.ndarray,
     y_valid: np.ndarray,
@@ -232,7 +263,7 @@ def evaluate_and_report(
     )
 
 
-def save_model(model, model_output: Path | str) -> None:
+def save_model(model: LogisticRegression, model_output: Path | str) -> None:
     """保存训练好的模型到指定路径。"""
 
     output_path = _ensure_path(model_output)
@@ -241,17 +272,9 @@ def save_model(model, model_output: Path | str) -> None:
     print(f"模型已保存至: {output_path}")
 
 
-def _parse_binarize(value: str) -> float | None:
-    """解析 ``--binarize`` 参数，允许传入 ``none`` 关闭二值化。"""
-
-    if value.lower() == "none":
-        return None
-    return float(value)
-
-
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="使用朴素贝叶斯训练垃圾邮件分类模型",
+        description="使用逻辑回归训练垃圾邮件分类模型",
         formatter_class=argparse.RawTextHelpFormatter,
     )
 
@@ -262,7 +285,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "特征数组 (.npy) 文件路径。"
             "\n- 未提供时将尝试使用默认路径: "
             f"{DEFAULT_FEATURES_PATH}"
-            "\n- 也可通过环境变量 NB_FEATURES_PATH 指定默认值"
+            "\n- 也可通过环境变量 LR_FEATURES_PATH 指定默认值"
         ),
     )
     parser.add_argument(
@@ -272,7 +295,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "标签 (.txt) 文件路径。"
             "\n- 未提供时将尝试使用默认路径: "
             f"{DEFAULT_LABELS_PATH}"
-            "\n- 也可通过环境变量 NB_LABELS_PATH 指定默认值"
+            "\n- 也可通过环境变量 LR_LABELS_PATH 指定默认值"
         ),
     )
     parser.add_argument(
@@ -282,41 +305,38 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "模型保存路径 (.joblib) 文件。"
             "\n- 未提供时将尝试使用默认路径: "
             f"{DEFAULT_MODEL_OUTPUT_PATH}"
-            "\n- 也可通过环境变量 NB_MODEL_OUTPUT 指定默认值"
+            "\n- 也可通过环境变量 LR_MODEL_OUTPUT 指定默认值"
         ),
     )
     parser.add_argument(
-        "--model-type",
-        choices=("multinomial", "bernoulli"),
-        default="multinomial",
-        help="选择朴素贝叶斯模型类型：multinomial 或 bernoulli。",
-    )
-    parser.add_argument(
-        "--alpha",
+        "--C",
         type=float,
         default=1.0,
-        help="拉普拉斯/李德斯通平滑参数 (alpha)。",
+        help="正则化强度的倒数 (C)，更大的值意味着更弱的正则化。",
     )
     parser.add_argument(
-        "--fit-prior",
-        action="store_true",
-        help="根据数据估计先验概率 (默认行为)。",
+        "--penalty",
+        choices=("l1", "l2", "elasticnet", "none"),
+        default="l2",
+        help="正则化类型。请确保与 solver 兼容。",
     )
     parser.add_argument(
-        "--no-fit-prior",
-        dest="fit_prior",
-        action="store_false",
-        help="不估计先验概率，使用统一先验。",
+        "--solver",
+        choices=("lbfgs", "liblinear", "saga", "newton-cg"),
+        default="lbfgs",
+        help="求解器类型，与 penalty 组合需满足 sklearn 要求。",
     )
-    parser.set_defaults(fit_prior=True)
     parser.add_argument(
-        "--binarize",
-        type=_parse_binarize,
-        default=_parse_binarize("0.0"),
-        help=(
-            "仅对 BernoulliNB 生效，将特征按该阈值二值化。"
-            "\n- 传入 none 表示不进行二值化。"
-        ),
+        "--max-iter",
+        type=int,
+        default=1000,
+        help="最大迭代次数。",
+    )
+    parser.add_argument(
+        "--class-weight",
+        choices=("balanced",),
+        default=None,
+        help="类别权重设置。传入 balanced 可按频率自动调整。",
     )
     parser.add_argument(
         "--validation-size",
@@ -370,16 +390,17 @@ def main(argv: list[str] | None = None) -> None:
         X, y = load_dataset(features_path, labels_path)
         print(f"数据加载完成：特征矩阵形状 {X.shape}，标签数量 {y.size}。")
 
-        model, X_valid, y_valid, X_test, y_test = train_naive_bayes(
+        model, X_valid, y_valid, X_test, y_test = train_logistic_regression(
             X,
             y,
-            model_type=args.model_type,
-            alpha=args.alpha,
-            fit_prior=args.fit_prior,
-            binarize=args.binarize,
+            C=args.C,
+            penalty=args.penalty,
+            solver=args.solver,
+            max_iter=args.max_iter,
             validation_size=args.validation_size,
             test_size=args.test_size,
             random_state=args.random_state,
+            class_weight=args.class_weight,
         )
 
         evaluate_and_report(
