@@ -266,18 +266,21 @@ def _format_metric_block(
 
     lines = [
         f"{dataset_label}样本数: {len(y_true)}",
-        "┌────────────────── 模型评估结果 ──────────────────┐",
-        "│ 指标           数值        百分比(%)             │",
-        f"│ Precision   {precision:7.4f}   {precision*100:8.2f}           │",
-        f"│ Recall      {recall:7.4f}   {recall*100:8.2f}           │",
-        f"│ F1-Score    {f1_score:7.4f}   {f1_score*100:8.2f}           │",
-        f"│ Accuracy    {accuracy:7.4f}   {accuracy*100:8.2f}           │",
-        "└──────────────────────────────────────────────────┘",
-        "预测正确率: {:.4f} ({:.2f}%)".format(accuracy, accuracy * 100),
         "",
-        "混淆矩阵 (行=实际, 列=预测):",
-        f"  [{negative_label:4s}]  真阴 TN: {tn:5d} | 假阳 FP: {fp:5d}",
-        f"  [{positive_label:4s}]  假阴 FN: {fn:5d} | 真阳 TP: {tp:5d}",
+        "==================== 模型评估结果 ====================",
+        "模型评估精度：",
+        f"Accuracy:     {accuracy:0.4f} ({accuracy * 100:5.2f}%)",
+        f"Precision:    {precision:0.4f} ({precision * 100:5.2f}%)",
+        f"Recall:       {recall:0.4f} ({recall * 100:5.2f}%)",
+        f"F1-Score:    {f1_score:0.4f} ({f1_score * 100:5.2f}%)",
+        "",
+        f"预测正确率: {accuracy:0.4f} ({accuracy * 100:5.2f}%)",
+        "",
+        "混淆矩阵:",
+        f"True Positive (预测为{positive_label}, 实际为{positive_label}): {tp}",
+        f"True Negative (预测为{negative_label}, 实际为{negative_label}): {tn}",
+        f"False Positive (预测为{positive_label}, 实际为{negative_label}): {fp}",
+        f"False Negative (预测为{negative_label}, 实际为{positive_label}): {fn}",
     ]
 
     return "\n".join(lines)
