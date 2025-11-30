@@ -196,10 +196,16 @@ def train_svm_classifier(
     n_samples, n_features = X_train.shape
 
     if implementation == "linear":
+        effective_max_iter = max_iter
+        if max_iter < 0:
+            effective_max_iter = 100_000
+            print(
+                "LinearSVC 不接受 -1 作为 max_iter，将自动替换为 100000 以近似取消上限。"
+            )
         dual = n_samples < n_features
         base_model = LinearSVC(
             C=1.0,
-            max_iter=max_iter,
+            max_iter=effective_max_iter,
             tol=tol,
             dual=dual,
             random_state=42,
@@ -233,9 +239,14 @@ def train_svm_classifier(
         f"收敛容忍度 tol={tol:g}：当优化改进低于该阈值时停止迭代，可搭配 --max-iter 控制迭代上限。"
     )
     if max_iter == -1:
-        print(
-            "已取消迭代次数上限，优化将根据收敛容忍度自动停止，确保充分训练。"
-        )
+        if implementation == "linear":
+            print(
+                "已取消迭代次数上限，但 LinearSVC 需要整数上限，已用 100000 近似处理。"
+            )
+        else:
+            print(
+                "已取消迭代次数上限，优化将根据收敛容忍度自动停止，确保充分训练。"
+            )
     train_start = time.perf_counter()
     with PeriodicStatusPrinter("模型训练", interval=progress_interval):
         model.fit(X_train_scaled, y_train)
@@ -439,6 +450,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help=(
             "设定优化的最大迭代次数。"
             "\n- 对 LinearSVC 与 SVC 均生效，默认 -1 表示不限制，由收敛容忍度自动停止。"
+            "\n- 注意: LinearSVC 不接受 -1，若使用 linear 模式且传入 -1，脚本会自动替换为 100000 以近似取消上限。"
         ),
     )
     parser.add_argument(
