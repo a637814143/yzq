@@ -23,6 +23,13 @@ DEFAULT_SVM_MODEL = Path(
     os.environ.get("SVM_MODEL_OUTPUT", r"E:\\毕业设计\\新测试\\支持向量机SVM算法\\svm_model.joblib")
 )
 
+# 三模型融合的权重（朴素贝叶斯 50%，SVM 25%，逻辑回归 25%）
+MODEL_WEIGHTS: dict[str, float] = {
+    "朴素贝叶斯模型": 0.5,
+    "SVM 模型": 0.25,
+    "逻辑回归模型": 0.25,
+}
+
 
 class EmailClassifierApp(tk.Tk):
     """上传邮件、选择模型并输出预测结果的桌面窗口。"""
@@ -224,12 +231,7 @@ class EmailClassifierApp(tk.Tk):
                 messagebox.showerror("邮件不存在", f"未找到邮件文件: {email_path}")
                 return
 
-        required_models = {
-            "朴素贝叶斯模型": 0.5,
-            "SVM 模型": 0.25,
-            "逻辑回归模型": 0.25,
-        }
-        missing = [name for name, _ in required_models.items() if not self.model_paths[name].exists()]
+        missing = [name for name in MODEL_WEIGHTS if not self.model_paths[name].exists()]
         if missing:
             messagebox.showerror(
                 "模型不存在",
@@ -241,7 +243,8 @@ class EmailClassifierApp(tk.Tk):
             X, meta = self._load_email_features(email_path, manual_text)
             results = []
             fused_proba = 0.0
-            for model_key, weight in required_models.items():
+            total_weight = 0.0
+            for model_key, weight in MODEL_WEIGHTS.items():
                 model_path = self.model_paths[model_key]
                 model_data = self._load_model(model_path)
                 model = model_data["model"]
@@ -250,9 +253,10 @@ class EmailClassifierApp(tk.Tk):
                 proba = self._positive_probability(model, X_scaled)
                 pred = int(model.predict(X_scaled)[0])
                 fused_proba += weight * proba
+                total_weight += weight
                 results.append((model_key, model_path, pred, proba, weight))
-            pred = int(fused_proba >= 0.5)
-            proba = fused_proba
+            proba = fused_proba / total_weight if total_weight else 0.0
+            pred = int(proba >= 0.5)
         except Exception as exc:  # noqa: BLE001
             messagebox.showerror("预测失败", f"处理或预测时出错: {exc}")
             return
