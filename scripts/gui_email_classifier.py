@@ -247,7 +247,7 @@ class EmailClassifierApp(tk.Tk):
 
     def _predict_single_model(
         self, model_key: str, model_path: Path, X: np.ndarray
-    ) -> tuple[int, float, str]:
+    ) -> tuple[int, float, float, str]:
         model_data = self._load_model(model_path)
         model = model_data["model"]
         scaler = model_data["scaler"]
@@ -258,11 +258,14 @@ class EmailClassifierApp(tk.Tk):
 
         # 随机森林和 SVM 仅当概率 ≥ 0.70 时判为垃圾
         if model_key in {"随机森林模型", "SVM 模型"}:
-            pred = 1 if proba >= 0.70 else 0
+            threshold_met = proba >= 0.70
+            pred = 1 if threshold_met else 0
+            effective_proba = proba if threshold_met else 0.0
         else:
             pred = pred_raw
+            effective_proba = proba
 
-        return pred, proba, proba_method
+        return pred, proba, effective_proba, proba_method
 
     def _run_inference(self) -> None:
         if not self.selected_email:
@@ -295,16 +298,21 @@ class EmailClassifierApp(tk.Tk):
             # 加权概率 = sum(模型垃圾概率 * 模型权重) / 权重总和。
             for model_key, weight in MODEL_WEIGHTS.items():
                 path = self.model_paths[model_key]
-                pred, proba, proba_method = self._predict_single_model(
+                pred, proba, eff_proba, proba_method = self._predict_single_model(
                     model_key, path, X
                 )
-                weighted_sum += proba * weight
-                threshold_note = "（≥70% 才判垃圾）" if model_key in {"随机森林模型", "SVM 模型"} else ""
+                weighted_sum += eff_proba * weight
+                threshold_note = (
+                    "（≥70% 才计为垃圾，并计入加权）"
+                    if model_key in {"随机森林模型", "SVM 模型"}
+                    else ""
+                )
+                proba_for_show = eff_proba if model_key in {"随机森林模型", "SVM 模型"} else proba
                 per_model_results.append(
                     " | ".join(
                         [
                             f"{model_key} -> 判定: {'垃圾' if pred == 1 else '正常'}{threshold_note}",
-                            f"概率: {proba*100:0.2f}%",
+                            f"概率: {proba*100:0.2f}% (加权取值: {proba_for_show*100:0.2f}%)",
                             f"权重: {weight*100:0.0f}%",
                             proba_method,
                             feature_basis,
@@ -343,8 +351,8 @@ class EmailClassifierApp(tk.Tk):
             "1) 单模型概率：优先用 predict_proba 读取“标签为 1(垃圾)”的列；若模型无标签 1 列，则取概率最大的类别。",
             "2) 若模型不支持 predict_proba 但有 decision_function，则取分值并经过 sigmoid 变换得到概率。",
             "3) 若模型既无 predict_proba 也无 decision_function，则返回 0 作为兜底概率。",
-            "4) 阈值要求：随机森林与 SVM 需垃圾概率 ≥ 70% 时才判为垃圾，其余模型使用默认阈值。",
-            "5) 加权融合：将五个模型的垃圾概率乘以各自权重求和，再除以权重总和，得到最终展示的垃圾邮件概率。",
+            "4) 阈值要求：随机森林与 SVM 需垃圾概率 ≥ 70% 时才判为垃圾；若低于阈值，其加权概率按 0 计入。其余模型使用默认阈值。",
+            "5) 加权融合：将五个模型的有效垃圾概率乘以各自权重求和，再除以权重总和，得到最终展示的垃圾邮件概率。",
             "",
         ])
 
