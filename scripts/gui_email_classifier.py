@@ -38,6 +38,9 @@ MODEL_WEIGHTS: dict[str, float] = {
     "决策树模型": 0.25,
 }
 
+# 需要满足 70% 概率阈值才视为垃圾并计入加权的模型
+THRESHOLD_MODELS: set[str] = {"随机森林模型", "SVM 模型", "逻辑回归模型", "决策树模型"}
+
 
 class EmailClassifierApp(tk.Tk):
     """上传邮件、选择模型并输出预测结果的桌面窗口。"""
@@ -256,8 +259,8 @@ class EmailClassifierApp(tk.Tk):
         proba = self._positive_probability(model, X_scaled)
         pred_raw = int(model.predict(X_scaled)[0])
 
-        # 随机森林和 SVM 仅当概率 ≥ 0.70 时判为垃圾
-        if model_key in {"随机森林模型", "SVM 模型"}:
+        # 部分模型仅当概率 ≥ 0.70 时判为垃圾
+        if model_key in THRESHOLD_MODELS:
             threshold_met = proba >= 0.70
             pred = 1 if threshold_met else 0
             effective_proba = proba if threshold_met else 0.0
@@ -303,11 +306,9 @@ class EmailClassifierApp(tk.Tk):
                 )
                 weighted_sum += eff_proba * weight
                 threshold_note = (
-                    "（≥70% 才计为垃圾，并计入加权）"
-                    if model_key in {"随机森林模型", "SVM 模型"}
-                    else ""
+                    "（≥70% 才计为垃圾，并计入加权）" if model_key in THRESHOLD_MODELS else ""
                 )
-                proba_for_show = eff_proba if model_key in {"随机森林模型", "SVM 模型"} else proba
+                proba_for_show = eff_proba if model_key in THRESHOLD_MODELS else proba
                 per_model_results.append(
                     " | ".join(
                         [
@@ -351,7 +352,7 @@ class EmailClassifierApp(tk.Tk):
             "1) 单模型概率：优先用 predict_proba 读取“标签为 1(垃圾)”的列；若模型无标签 1 列，则取概率最大的类别。",
             "2) 若模型不支持 predict_proba 但有 decision_function，则取分值并经过 sigmoid 变换得到概率。",
             "3) 若模型既无 predict_proba 也无 decision_function，则返回 0 作为兜底概率。",
-            "4) 阈值要求：随机森林与 SVM 需垃圾概率 ≥ 70% 时才判为垃圾；若低于阈值，其加权概率按 0 计入。其余模型使用默认阈值。",
+            "4) 阈值要求：随机森林、SVM、逻辑回归、决策树需垃圾概率 ≥ 70% 时才判为垃圾；若低于阈值，其加权概率按 0 计入。朴素贝叶斯使用默认阈值。",
             "5) 加权融合：将五个模型的有效垃圾概率乘以各自权重求和，再除以权重总和，得到最终展示的垃圾邮件概率。",
             "",
         ])
