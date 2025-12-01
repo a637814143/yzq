@@ -29,6 +29,15 @@ DEFAULT_RF_MODEL = Path(
     os.environ.get("RF_MODEL_OUTPUT", r"E:\\毕业设计\\新测试\\随机森林算法模型\\rf_model.joblib")
 )
 
+# 五模型加权占比（总和为 1.0）
+MODEL_WEIGHTS: dict[str, float] = {
+    "随机森林模型": 0.30,
+    "决策树模型": 0.20,
+    "逻辑回归模型": 0.15,
+    "SVM 模型": 0.15,
+    "朴素贝叶斯模型": 0.20,
+}
+
 
 class EmailClassifierApp(tk.Tk):
     """上传邮件、选择模型并输出预测结果的桌面窗口。"""
@@ -47,7 +56,6 @@ class EmailClassifierApp(tk.Tk):
             "随机森林模型": DEFAULT_RF_MODEL,
         }
         self.loaded_models: dict[Path, object] = {}
-        self.model_var = tk.StringVar(value="朴素贝叶斯模型")
 
         self._build_widgets()
 
@@ -56,7 +64,7 @@ class EmailClassifierApp(tk.Tk):
 
         header = ttk.Label(
             self,
-            text="上传邮件或粘贴正文，支持朴素贝叶斯 / SVM / 逻辑回归 / 决策树 / 随机森林 单模型识别",
+            text="上传邮件或粘贴正文，使用朴素贝叶斯 / SVM / 逻辑回归 / 决策树 / 随机森林 五模型加权识别",
             font=("微软雅黑", 12, "bold"),
         )
         header.pack(anchor="w", **padding)
@@ -77,28 +85,18 @@ class EmailClassifierApp(tk.Tk):
         self.manual_text = tk.Text(text_frame, height=6, wrap="word", font=("等线", 11))
         self.manual_text.pack(fill="x", padx=6, pady=4)
 
-        model_frame = ttk.LabelFrame(self, text="3. 选择模型与路径")
+        model_frame = ttk.LabelFrame(self, text="3. 确认模型路径与占比")
         model_frame.pack(fill="x", **padding)
         ttk.Label(
             model_frame,
-            text="请选择需要使用的模型，可为五种训练好的任一模型。",
+            text=(
+                "将按以下占比对五个模型的垃圾邮件概率加权，得到最终判定：\n"
+                "随机森林 30% | 决策树 20% | 逻辑回归 15% | SVM 15% | 朴素贝叶斯 20%"
+            ),
         ).grid(row=0, column=0, columnspan=3, sticky="w", padx=6, pady=(4, 6))
 
-        ttk.Label(model_frame, text="模型选择:").grid(
-            row=1, column=0, sticky="w", padx=6, pady=4
-        )
-        model_names = list(self.model_paths.keys())
-        selector = ttk.Combobox(
-            model_frame,
-            textvariable=self.model_var,
-            values=model_names,
-            state="readonly",
-            width=30,
-        )
-        selector.grid(row=1, column=1, sticky="w", padx=6, pady=4)
-
         self.model_labels: dict[str, ttk.Label] = {}
-        for idx, key in enumerate(self.model_paths.keys(), start=2):
+        for idx, key in enumerate(self.model_paths.keys(), start=1):
             ttk.Label(model_frame, text=f"{key} 路径:").grid(
                 row=idx, column=0, sticky="w", padx=6, pady=4
             )
@@ -115,7 +113,7 @@ class EmailClassifierApp(tk.Tk):
         action_frame.pack(fill="x", **padding)
         ttk.Button(
             action_frame,
-            text="测试",
+            text="开始识别",
             command=self._run_inference,
             width=12,
         ).pack(side="left", padx=6)
@@ -124,7 +122,7 @@ class EmailClassifierApp(tk.Tk):
         self.result_box.pack(fill="both", expand=True, **padding)
         self.result_box.insert(
             "1.0",
-            "结果将在此显示。请先上传邮件文件或粘贴文本（文本文件可直接选择），然后点击测试执行所选模型的识别。\n",
+            "结果将在此显示。请先上传邮件文件或粘贴文本（文本文件可直接选择），然后点击“开始识别”执行五模型加权判断。\n",
         )
         self.result_box.config(state="disabled")
 
@@ -229,6 +227,15 @@ class EmailClassifierApp(tk.Tk):
         self.loaded_models[path] = model_data
         return model_data
 
+    def _predict_single_model(self, model_key: str, model_path: Path, X: np.ndarray) -> tuple[int, float]:
+        model_data = self._load_model(model_path)
+        model = model_data["model"]
+        scaler = model_data["scaler"]
+        X_scaled = scaler.transform(X) if scaler is not None else X
+        proba = self._positive_probability(model, X_scaled)
+        pred = int(model.predict(X_scaled)[0])
+        return pred, proba
+
     def _run_inference(self) -> None:
         manual_text = self.manual_text.get("1.0", "end").strip()
         if not self.selected_email and not manual_text:
@@ -246,21 +253,31 @@ class EmailClassifierApp(tk.Tk):
 
         try:
             X, meta = self._load_email_features(email_path, manual_text)
-            selected_model = self.model_var.get()
-            model_path = self.model_paths[selected_model]
-            if not model_path.exists():
+            missing_models = [
+                key for key, path in self.model_paths.items() if not path.exists()
+            ]
+            if missing_models:
                 messagebox.showerror(
                     "模型不存在",
-                    f"未找到所选模型文件: {selected_model} -> {model_path}",
+                    "以下模型文件未找到，请确认路径后重试:\n" + "\n".join(missing_models),
                 )
                 return
 
-            model_data = self._load_model(model_path)
-            model = model_data["model"]
-            scaler = model_data["scaler"]
-            X_scaled = scaler.transform(X) if scaler is not None else X
-            proba = self._positive_probability(model, X_scaled)
-            pred = int(model.predict(X_scaled)[0])
+            per_model_results: list[str] = []
+            weighted_sum = 0.0
+            total_weight = sum(MODEL_WEIGHTS.values()) or 1.0
+
+            for model_key, weight in MODEL_WEIGHTS.items():
+                path = self.model_paths[model_key]
+                pred, proba = self._predict_single_model(model_key, path, X)
+                weighted_sum += proba * weight
+                per_model_results.append(
+                    f"{model_key} -> 判定: {'垃圾' if pred == 1 else '正常'} | 概率: {proba*100:0.2f}% | 权重: {weight*100:0.0f}% | 路径: {path}"
+                )
+
+            agg_proba = weighted_sum / total_weight
+            pred = 1 if agg_proba >= 0.5 else 0
+            proba = agg_proba
         except Exception as exc:  # noqa: BLE001
             messagebox.showerror("预测失败", f"处理或预测时出错: {exc}")
             return
@@ -273,13 +290,18 @@ class EmailClassifierApp(tk.Tk):
         source_desc = str(email_path) if email_path else "粘贴文本（未选择文件）"
 
         lines = [
-            "================ 预测结果（单模型） ================",
-            f"使用模型: {selected_model}",
-            f"模型路径: {model_path}",
+            "================ 预测结果（五模型加权） ================",
+            "占比: 随机森林30% + 决策树20% + 逻辑回归15% + SVM 15% + 朴素贝叶斯20%",
             f"输入来源: {source_desc}",
             f"判定: {label_text} | 概率: {percentage:0.2f}%",
             "",
         ]
+
+        lines.extend([
+            "================ 各模型判定详情 ================",
+            *per_model_results,
+            "",
+        ])
 
         lines.extend(
             [
