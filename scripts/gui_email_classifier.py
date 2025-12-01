@@ -22,20 +22,16 @@ DEFAULT_SVM_MODEL = Path(
 DEFAULT_LR_MODEL = Path(
     os.environ.get("LR_MODEL_OUTPUT", r"E:\\毕业设计\\新测试\\逻辑回归算法模型\\lr_model.joblib")
 )
-DEFAULT_DT_MODEL = Path(
-    os.environ.get("DT_MODEL_OUTPUT", r"E:\\毕业设计\\新测试\\决策树算法模型\\dt_model.joblib")
-)
 DEFAULT_RF_MODEL = Path(
     os.environ.get("RF_MODEL_OUTPUT", r"E:\\毕业设计\\新测试\\随机森林算法模型\\rf_model.joblib")
 )
 
-# 五模型加权占比（总和为 1.0）
+# 四模型加权占比（总和为 1.0）
 MODEL_WEIGHTS: dict[str, float] = {
-    "随机森林模型": 0.50,
-    "决策树模型": 0.10,
-    "逻辑回归模型": 0.10,
-    "SVM 模型": 0.10,
-    "朴素贝叶斯模型": 0.20,
+    "随机森林模型": 0.40,
+    "逻辑回归模型": 0.15,
+    "SVM 模型": 0.15,
+    "朴素贝叶斯模型": 0.30,
 }
 
 
@@ -52,7 +48,6 @@ class EmailClassifierApp(tk.Tk):
             "朴素贝叶斯模型": DEFAULT_NB_MODEL,
             "SVM 模型": DEFAULT_SVM_MODEL,
             "逻辑回归模型": DEFAULT_LR_MODEL,
-            "决策树模型": DEFAULT_DT_MODEL,
             "随机森林模型": DEFAULT_RF_MODEL,
         }
         self.loaded_models: dict[Path, object] = {}
@@ -64,7 +59,7 @@ class EmailClassifierApp(tk.Tk):
 
         header = ttk.Label(
             self,
-            text="上传邮件或粘贴正文，使用朴素贝叶斯 / SVM / 逻辑回归 / 决策树 / 随机森林 五模型加权识别",
+            text="上传邮件或粘贴正文，使用朴素贝叶斯 / SVM / 逻辑回归 / 随机森林 四模型加权识别",
             font=("微软雅黑", 12, "bold"),
         )
         header.pack(anchor="w", **padding)
@@ -90,8 +85,8 @@ class EmailClassifierApp(tk.Tk):
         ttk.Label(
             model_frame,
             text=(
-                "将按以下占比对五个模型的垃圾邮件概率加权，得到最终判定：\n"
-                "随机森林 50% | 决策树 10% | 逻辑回归 10% | SVM 10% | 朴素贝叶斯 20%"
+                "将按以下占比对四个模型的垃圾邮件概率加权，得到最终判定：\n"
+                "随机森林 40% | 逻辑回归 15% | SVM 15% | 朴素贝叶斯 30%"
             ),
         ).grid(row=0, column=0, columnspan=3, sticky="w", padx=6, pady=(4, 6))
 
@@ -122,7 +117,7 @@ class EmailClassifierApp(tk.Tk):
         self.result_box.pack(fill="both", expand=True, **padding)
         self.result_box.insert(
             "1.0",
-            "结果将在此显示。请先上传邮件文件或粘贴文本（文本文件可直接选择），然后点击“开始识别”执行五模型加权判断。\n",
+            "结果将在此显示。请先上传邮件文件或粘贴文本（文本文件可直接选择），然后点击“开始识别”执行四模型加权判断。\n",
         )
         self.result_box.config(state="disabled")
 
@@ -347,8 +342,8 @@ class EmailClassifierApp(tk.Tk):
         source_desc = str(email_path) if email_path else "粘贴文本（未选择文件）"
 
         lines = [
-            "================ 预测结果（五模型加权） ================",
-            "占比: 随机森林50% + 决策树10% + 逻辑回归10% + SVM 10% + 朴素贝叶斯20%",
+            "================ 预测结果（四模型加权） ================",
+            "占比: 随机森林40% + 逻辑回归15% + SVM 15% + 朴素贝叶斯30%",
             f"输入来源: {source_desc}",
             f"判定: {label_text} | 概率: {percentage:0.2f}%",
             "",
@@ -362,7 +357,7 @@ class EmailClassifierApp(tk.Tk):
             "1) 单模型概率：优先用 predict_proba 读取“标签为 1(垃圾)”的列；若模型无标签 1 列，则取概率最大的类别。",
             "2) 若模型不支持 predict_proba 但有 decision_function，则取分值并经过 sigmoid 变换得到概率。",
             "3) 若模型既无 predict_proba 也无 decision_function，则返回 0 作为兜底概率。",
-            "4) 加权融合：将五个模型的垃圾概率乘以各自权重求和，再除以权重总和，得到最终展示的垃圾邮件概率。",
+            "4) 加权融合：将四个模型的垃圾概率乘以各自权重求和，再除以权重总和，得到最终展示的垃圾邮件概率。",
             "",
         ])
 
