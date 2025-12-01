@@ -25,13 +25,17 @@ DEFAULT_LR_MODEL = Path(
 DEFAULT_RF_MODEL = Path(
     os.environ.get("RF_MODEL_OUTPUT", r"E:\\毕业设计\\新测试\\随机森林算法模型\\rf_model.joblib")
 )
+DEFAULT_DT_MODEL = Path(
+    os.environ.get("DT_MODEL_OUTPUT", r"E:\\毕业设计\\新测试\\决策树算法模型\\dt_model.joblib")
+)
 
-# 四模型加权占比（总和为 1.0）
+# 五模型加权占比（总和为 1.0）
 MODEL_WEIGHTS: dict[str, float] = {
-    "随机森林模型": 0.40,
-    "逻辑回归模型": 0.15,
+    "随机森林模型": 0.30,
+    "逻辑回归模型": 0.20,
     "SVM 模型": 0.15,
-    "朴素贝叶斯模型": 0.30,
+    "朴素贝叶斯模型": 0.10,
+    "决策树模型": 0.25,
 }
 
 
@@ -49,6 +53,7 @@ class EmailClassifierApp(tk.Tk):
             "SVM 模型": DEFAULT_SVM_MODEL,
             "逻辑回归模型": DEFAULT_LR_MODEL,
             "随机森林模型": DEFAULT_RF_MODEL,
+            "决策树模型": DEFAULT_DT_MODEL,
         }
         self.loaded_models: dict[Path, object] = {}
 
@@ -59,12 +64,12 @@ class EmailClassifierApp(tk.Tk):
 
         header = ttk.Label(
             self,
-            text="上传邮件或粘贴正文，使用朴素贝叶斯 / SVM / 逻辑回归 / 随机森林 四模型加权识别",
+            text="上传邮件文件（含文本/EML），使用朴素贝叶斯 / SVM / 逻辑回归 / 随机森林 / 决策树 五模型加权识别",
             font=("微软雅黑", 12, "bold"),
         )
         header.pack(anchor="w", **padding)
 
-        file_frame = ttk.LabelFrame(self, text="1. 邮件上传")
+        file_frame = ttk.LabelFrame(self, text="1. 邮件上传（支持 .eml / .txt 等文本格式）")
         file_frame.pack(fill="x", **padding)
         ttk.Button(file_frame, text="选择文件", command=self._choose_email).pack(
             side="left", padx=8, pady=6
@@ -72,21 +77,13 @@ class EmailClassifierApp(tk.Tk):
         self.email_label = ttk.Label(file_frame, text="未选择文件")
         self.email_label.pack(side="left", padx=8)
 
-        text_frame = ttk.LabelFrame(self, text="2. 粘贴邮件正文（可选）")
-        text_frame.pack(fill="both", expand=False, **padding)
-        ttk.Label(text_frame, text="可直接粘贴纯文本邮件内容，若同时提供文件则优先使用文件。 ").pack(
-            anchor="w", padx=6, pady=2
-        )
-        self.manual_text = tk.Text(text_frame, height=6, wrap="word", font=("等线", 11))
-        self.manual_text.pack(fill="x", padx=6, pady=4)
-
-        model_frame = ttk.LabelFrame(self, text="3. 确认模型路径与占比")
+        model_frame = ttk.LabelFrame(self, text="2. 确认模型路径与占比")
         model_frame.pack(fill="x", **padding)
         ttk.Label(
             model_frame,
             text=(
-                "将按以下占比对四个模型的垃圾邮件概率加权，得到最终判定：\n"
-                "随机森林 40% | 逻辑回归 15% | SVM 15% | 朴素贝叶斯 30%"
+                "将按以下占比对五个模型的垃圾邮件概率加权，得到最终判定：\n"
+                "随机森林 30% | 逻辑回归 20% | SVM 15% | 朴素贝叶斯 10% | 决策树 25%"
             ),
         ).grid(row=0, column=0, columnspan=3, sticky="w", padx=6, pady=(4, 6))
 
@@ -117,7 +114,7 @@ class EmailClassifierApp(tk.Tk):
         self.result_box.pack(fill="both", expand=True, **padding)
         self.result_box.insert(
             "1.0",
-            "结果将在此显示。请先上传邮件文件或粘贴文本（文本文件可直接选择），然后点击“开始识别”执行四模型加权判断。\n",
+            "结果将在此显示。请上传邮件文件（支持 EML 或文本），然后点击“开始识别”执行五模型加权判断。\n",
         )
         self.result_box.config(state="disabled")
 
@@ -153,33 +150,19 @@ class EmailClassifierApp(tk.Tk):
         self.result_box.see("end")
         self.result_box.config(state="disabled")
 
-    def _load_email_features(
-        self, path: Path | None, manual_text: str
-    ) -> tuple[np.ndarray, dict]:
-        if path:
-            ext = path.suffix.lower()
-            if ext == ".eml":
-                parsed = email_parser.parse_eml(str(path))
-                body_preview = parsed.get("body", "") or ""
-            else:
-                body_preview = path.read_text(encoding="utf-8", errors="ignore")
-                parsed = {
-                    "path": str(path),
-                    "subject": path.stem,
-                    "from": "",
-                    "to": [],
-                    "body": body_preview,
-                    "raw": None,
-                    "attachments": 0,
-                }
+    def _load_email_features(self, path: Path) -> tuple[np.ndarray, dict]:
+        ext = path.suffix.lower()
+        if ext == ".eml":
+            parsed = email_parser.parse_eml(str(path))
+            body_preview = parsed.get("body", "") or ""
         else:
-            body_preview = manual_text
+            body_preview = path.read_text(encoding="utf-8", errors="ignore")
             parsed = {
-                "path": "粘贴文本",
-                "subject": "",
+                "path": str(path),
+                "subject": path.stem,
                 "from": "",
                 "to": [],
-                "body": manual_text,
+                "body": body_preview,
                 "raw": None,
                 "attachments": 0,
             }
@@ -264,33 +247,38 @@ class EmailClassifierApp(tk.Tk):
 
     def _predict_single_model(
         self, model_key: str, model_path: Path, X: np.ndarray
-    ) -> tuple[int, float, str]:
+    ) -> tuple[int, float, float, str]:
         model_data = self._load_model(model_path)
         model = model_data["model"]
         scaler = model_data["scaler"]
         X_scaled = scaler.transform(X) if scaler is not None else X
         proba_method = self._probability_method(model)
         proba = self._positive_probability(model, X_scaled)
-        pred = int(model.predict(X_scaled)[0])
-        return pred, proba, proba_method
+        pred_raw = int(model.predict(X_scaled)[0])
+
+        # 随机森林和 SVM 仅当概率 ≥ 0.70 时判为垃圾
+        if model_key in {"随机森林模型", "SVM 模型"}:
+            threshold_met = proba >= 0.70
+            pred = 1 if threshold_met else 0
+            effective_proba = proba if threshold_met else 0.0
+        else:
+            pred = pred_raw
+            effective_proba = proba
+
+        return pred, proba, effective_proba, proba_method
 
     def _run_inference(self) -> None:
-        manual_text = self.manual_text.get("1.0", "end").strip()
-        if not self.selected_email and not manual_text:
-            messagebox.showwarning("缺少邮件", "请上传邮件文件或粘贴邮件正文后再测试。")
+        if not self.selected_email:
+            messagebox.showwarning("缺少邮件", "请上传邮件文件后再测试（支持 EML 或文本格式）。")
             return
 
         email_path = self.selected_email
         if email_path and not email_path.exists():
-            if manual_text:
-                self._append_message("选择的邮件文件不存在，已改用粘贴文本进行检测。\n")
-                email_path = None
-            else:
-                messagebox.showerror("邮件不存在", f"未找到邮件文件: {email_path}")
-                return
+            messagebox.showerror("邮件不存在", f"未找到邮件文件: {email_path}")
+            return
 
         try:
-            X, meta = self._load_email_features(email_path, manual_text)
+            X, meta = self._load_email_features(email_path)
             feature_basis = self._feature_basis(meta["features"])
             missing_models = [
                 key for key, path in self.model_paths.items() if not path.exists()
@@ -310,15 +298,21 @@ class EmailClassifierApp(tk.Tk):
             # 加权概率 = sum(模型垃圾概率 * 模型权重) / 权重总和。
             for model_key, weight in MODEL_WEIGHTS.items():
                 path = self.model_paths[model_key]
-                pred, proba, proba_method = self._predict_single_model(
+                pred, proba, eff_proba, proba_method = self._predict_single_model(
                     model_key, path, X
                 )
-                weighted_sum += proba * weight
+                weighted_sum += eff_proba * weight
+                threshold_note = (
+                    "（≥70% 才计为垃圾，并计入加权）"
+                    if model_key in {"随机森林模型", "SVM 模型"}
+                    else ""
+                )
+                proba_for_show = eff_proba if model_key in {"随机森林模型", "SVM 模型"} else proba
                 per_model_results.append(
                     " | ".join(
                         [
-                            f"{model_key} -> 判定: {'垃圾' if pred == 1 else '正常'}",
-                            f"概率: {proba*100:0.2f}%",
+                            f"{model_key} -> 判定: {'垃圾' if pred == 1 else '正常'}{threshold_note}",
+                            f"概率: {proba*100:0.2f}% (加权取值: {proba_for_show*100:0.2f}%)",
                             f"权重: {weight*100:0.0f}%",
                             proba_method,
                             feature_basis,
@@ -339,11 +333,11 @@ class EmailClassifierApp(tk.Tk):
         parsed = meta["parsed"]
         preview = (meta.get("preview") or "").strip()
 
-        source_desc = str(email_path) if email_path else "粘贴文本（未选择文件）"
+        source_desc = str(email_path)
 
         lines = [
-            "================ 预测结果（四模型加权） ================",
-            "占比: 随机森林40% + 逻辑回归15% + SVM 15% + 朴素贝叶斯30%",
+            "================ 预测结果（五模型加权） ================",
+            "占比: 随机森林30% + 逻辑回归20% + SVM 15% + 朴素贝叶斯10% + 决策树25%",
             f"输入来源: {source_desc}",
             f"判定: {label_text} | 概率: {percentage:0.2f}%",
             "",
@@ -357,7 +351,8 @@ class EmailClassifierApp(tk.Tk):
             "1) 单模型概率：优先用 predict_proba 读取“标签为 1(垃圾)”的列；若模型无标签 1 列，则取概率最大的类别。",
             "2) 若模型不支持 predict_proba 但有 decision_function，则取分值并经过 sigmoid 变换得到概率。",
             "3) 若模型既无 predict_proba 也无 decision_function，则返回 0 作为兜底概率。",
-            "4) 加权融合：将四个模型的垃圾概率乘以各自权重求和，再除以权重总和，得到最终展示的垃圾邮件概率。",
+            "4) 阈值要求：随机森林与 SVM 需垃圾概率 ≥ 70% 时才判为垃圾；若低于阈值，其加权概率按 0 计入。其余模型使用默认阈值。",
+            "5) 加权融合：将五个模型的有效垃圾概率乘以各自权重求和，再除以权重总和，得到最终展示的垃圾邮件概率。",
             "",
         ])
 
