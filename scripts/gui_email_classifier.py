@@ -232,13 +232,13 @@ class EmailClassifierApp(tk.Tk):
         if hasattr(model, "predict_proba"):
             classes = getattr(model, "classes_", None)
             if classes is not None and 1 in classes:
-                return "使用 predict_proba 获取标签 1 的概率"
-            return "使用 predict_proba，取概率最大的类别"  # 兼容未显式包含 1 的场景
+                return "概率来源: predict_proba，直接取标签 1 对应的概率"
+            return "概率来源: predict_proba，未显式包含标签 1 时取最大概率的类别"  # 兼容未显式包含 1 的场景
 
         if hasattr(model, "decision_function"):
-            return "使用 decision_function 的分值经 sigmoid 转换为概率"
+            return "概率来源: decision_function 得分经 sigmoid 转换"
 
-        return "模型未提供概率接口，返回 0 作为兜底"
+        return "概率来源: 模型未提供概率接口，返回 0 兜底"
 
     def _predict_single_model(
         self, model_key: str, model_path: Path, X: np.ndarray
@@ -330,9 +330,10 @@ class EmailClassifierApp(tk.Tk):
             *per_model_results,
             "",
             "================ 概率计算说明 ================",
-            "1) 各模型先输出自身对“垃圾”标签的概率：优先使用 predict_proba；若无则用 decision_function 分值经 sigmoid 转换。",
-            "2) 本界面将上述概率按占比加权求平均，得到最终展示的垃圾邮件概率（加权概率 = ∑ 概率×权重 / 权重总和）。",
-            "3) 若模型未提供概率接口，则返回 0 作为兜底。",
+            "1) 单模型概率：优先用 predict_proba 读取“标签为 1(垃圾)”的列；若模型无标签 1 列，则取概率最大的类别。",
+            "2) 若模型不支持 predict_proba 但有 decision_function，则取分值并经过 sigmoid 变换得到概率。",
+            "3) 若模型既无 predict_proba 也无 decision_function，则返回 0 作为兜底概率。",
+            "4) 加权融合：将五个模型的垃圾概率乘以各自权重求和，再除以权重总和，得到最终展示的垃圾邮件概率。",
             "",
         ])
 
