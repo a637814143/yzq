@@ -19,12 +19,15 @@ DEFAULT_NB_MODEL = Path(
 DEFAULT_SVM_MODEL = Path(
     os.environ.get("SVM_MODEL_OUTPUT", r"E:\\毕业设计\\新测试\\支持向量机SVM算法\\svm_model.joblib")
 )
-
-# 双模型融合的权重（朴素贝叶斯 60%，SVM 40%）
-MODEL_WEIGHTS: dict[str, float] = {
-    "朴素贝叶斯模型": 0.6,
-    "SVM 模型": 0.4,
-}
+DEFAULT_LR_MODEL = Path(
+    os.environ.get("LR_MODEL_OUTPUT", r"E:\\毕业设计\\新测试\\逻辑回归算法模型\\lr_model.joblib")
+)
+DEFAULT_DT_MODEL = Path(
+    os.environ.get("DT_MODEL_OUTPUT", r"E:\\毕业设计\\新测试\\决策树算法模型\\dt_model.joblib")
+)
+DEFAULT_RF_MODEL = Path(
+    os.environ.get("RF_MODEL_OUTPUT", r"E:\\毕业设计\\新测试\\随机森林算法模型\\rf_model.joblib")
+)
 
 
 class EmailClassifierApp(tk.Tk):
@@ -39,8 +42,12 @@ class EmailClassifierApp(tk.Tk):
         self.model_paths: dict[str, Path] = {
             "朴素贝叶斯模型": DEFAULT_NB_MODEL,
             "SVM 模型": DEFAULT_SVM_MODEL,
+            "逻辑回归模型": DEFAULT_LR_MODEL,
+            "决策树模型": DEFAULT_DT_MODEL,
+            "随机森林模型": DEFAULT_RF_MODEL,
         }
         self.loaded_models: dict[Path, object] = {}
+        self.model_var = tk.StringVar(value="朴素贝叶斯模型")
 
         self._build_widgets()
 
@@ -49,10 +56,7 @@ class EmailClassifierApp(tk.Tk):
 
         header = ttk.Label(
             self,
-            text=(
-                "上传邮件（.eml/.txt/.text 等文本）或直接粘贴邮件正文，"
-                "支持双模型加权融合：朴素贝叶斯 60%，SVM 40%"
-            ),
+            text="上传邮件或粘贴正文，支持朴素贝叶斯 / SVM / 逻辑回归 / 决策树 / 随机森林 单模型识别",
             font=("微软雅黑", 12, "bold"),
         )
         header.pack(anchor="w", **padding)
@@ -73,31 +77,39 @@ class EmailClassifierApp(tk.Tk):
         self.manual_text = tk.Text(text_frame, height=6, wrap="word", font=("等线", 11))
         self.manual_text.pack(fill="x", padx=6, pady=4)
 
-        model_frame = ttk.LabelFrame(self, text="3. 模型路径（默认双模型加权融合）")
+        model_frame = ttk.LabelFrame(self, text="3. 选择模型与路径")
         model_frame.pack(fill="x", **padding)
         ttk.Label(
             model_frame,
-            text="将按 60% 朴素贝叶斯 + 40% SVM 进行融合。",
+            text="请选择需要使用的模型，可为五种训练好的任一模型。",
         ).grid(row=0, column=0, columnspan=3, sticky="w", padx=6, pady=(4, 6))
 
+        ttk.Label(model_frame, text="模型选择:").grid(
+            row=1, column=0, sticky="w", padx=6, pady=4
+        )
+        model_names = list(self.model_paths.keys())
+        selector = ttk.Combobox(
+            model_frame,
+            textvariable=self.model_var,
+            values=model_names,
+            state="readonly",
+            width=30,
+        )
+        selector.grid(row=1, column=1, sticky="w", padx=6, pady=4)
+
         self.model_labels: dict[str, ttk.Label] = {}
-        for idx, (name, key) in enumerate(
-            [
-                ("朴素贝叶斯", "朴素贝叶斯模型"),
-                ("SVM", "SVM 模型"),
-            ]
-        ):
-            ttk.Label(model_frame, text=f"{name} 模型路径:").grid(
-                row=idx + 1, column=0, sticky="w", padx=6, pady=4
+        for idx, key in enumerate(self.model_paths.keys(), start=2):
+            ttk.Label(model_frame, text=f"{key} 路径:").grid(
+                row=idx, column=0, sticky="w", padx=6, pady=4
             )
             label = ttk.Label(model_frame, text=str(self.model_paths[key]))
-            label.grid(row=idx + 1, column=1, sticky="w", padx=6, pady=4)
+            label.grid(row=idx, column=1, sticky="w", padx=6, pady=4)
             self.model_labels[key] = label
             ttk.Button(
                 model_frame,
                 text="浏览",
                 command=lambda k=key: self._choose_model(k),
-            ).grid(row=idx + 1, column=2, sticky="w", padx=6, pady=4)
+            ).grid(row=idx, column=2, sticky="w", padx=6, pady=4)
 
         action_frame = ttk.Frame(self)
         action_frame.pack(fill="x", **padding)
@@ -112,7 +124,7 @@ class EmailClassifierApp(tk.Tk):
         self.result_box.pack(fill="both", expand=True, **padding)
         self.result_box.insert(
             "1.0",
-            "结果将在此显示。请先上传邮件文件或粘贴文本（文本文件可直接选择），然后点击测试执行双模型融合预测。\n",
+            "结果将在此显示。请先上传邮件文件或粘贴文本（文本文件可直接选择），然后点击测试执行所选模型的识别。\n",
         )
         self.result_box.config(state="disabled")
 
@@ -225,32 +237,23 @@ class EmailClassifierApp(tk.Tk):
                 messagebox.showerror("邮件不存在", f"未找到邮件文件: {email_path}")
                 return
 
-        missing = [name for name in MODEL_WEIGHTS if not self.model_paths[name].exists()]
-        if missing:
-            messagebox.showerror(
-                "模型不存在",
-                "未找到以下模型文件：\n" + "\n".join(f"- {m}: {self.model_paths[m]}" for m in missing),
-            )
-            return
-
         try:
             X, meta = self._load_email_features(email_path, manual_text)
-            results = []
-            fused_proba = 0.0
-            total_weight = 0.0
-            for model_key, weight in MODEL_WEIGHTS.items():
-                model_path = self.model_paths[model_key]
-                model_data = self._load_model(model_path)
-                model = model_data["model"]
-                scaler = model_data["scaler"]
-                X_scaled = scaler.transform(X) if scaler is not None else X
-                proba = self._positive_probability(model, X_scaled)
-                pred = int(model.predict(X_scaled)[0])
-                fused_proba += weight * proba
-                total_weight += weight
-                results.append((model_key, model_path, pred, proba, weight))
-            proba = fused_proba / total_weight if total_weight else 0.0
-            pred = int(proba >= 0.5)
+            selected_model = self.model_var.get()
+            model_path = self.model_paths[selected_model]
+            if not model_path.exists():
+                messagebox.showerror(
+                    "模型不存在",
+                    f"未找到所选模型文件: {selected_model} -> {model_path}",
+                )
+                return
+
+            model_data = self._load_model(model_path)
+            model = model_data["model"]
+            scaler = model_data["scaler"]
+            X_scaled = scaler.transform(X) if scaler is not None else X
+            proba = self._positive_probability(model, X_scaled)
+            pred = int(model.predict(X_scaled)[0])
         except Exception as exc:  # noqa: BLE001
             messagebox.showerror("预测失败", f"处理或预测时出错: {exc}")
             return
@@ -263,19 +266,13 @@ class EmailClassifierApp(tk.Tk):
         source_desc = str(email_path) if email_path else "粘贴文本（未选择文件）"
 
         lines = [
-            "================ 预测结果（加权融合） ================",
-            "融合权重: 朴素贝叶斯 60% | SVM 40%",
+            "================ 预测结果（单模型） ================",
+            f"使用模型: {selected_model}",
+            f"模型路径: {model_path}",
             f"输入来源: {source_desc}",
             f"判定: {label_text} | 概率: {percentage:0.2f}%",
             "",
-            "各模型输出：",
         ]
-
-        for model_key, model_path, m_pred, m_proba, weight in results:
-            model_label = "垃圾邮件" if m_pred == 1 else "正常邮件"
-            lines.append(
-                f"- {model_key} ({model_path}) | 权重 {weight:.2f} | 判定: {model_label} | 概率: {m_proba*100:0.2f}%"
-            )
 
         lines.extend(
             [
