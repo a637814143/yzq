@@ -267,6 +267,8 @@ class EmailClassifierApp(tk.Tk):
             weighted_sum = 0.0
             total_weight = sum(MODEL_WEIGHTS.values()) or 1.0
 
+            # 逐个模型生成“垃圾”概率，并按设定权重求加权平均：
+            # 加权概率 = sum(模型垃圾概率 * 模型权重) / 权重总和。
             for model_key, weight in MODEL_WEIGHTS.items():
                 path = self.model_paths[model_key]
                 pred, proba = self._predict_single_model(model_key, path, X)
