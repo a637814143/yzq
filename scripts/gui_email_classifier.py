@@ -227,14 +227,30 @@ class EmailClassifierApp(tk.Tk):
         self.loaded_models[path] = model_data
         return model_data
 
-    def _predict_single_model(self, model_key: str, model_path: Path, X: np.ndarray) -> tuple[int, float]:
+    def _probability_method(self, model: object) -> str:
+        """给出当前模型输出“垃圾”概率的依据说明。"""
+        if hasattr(model, "predict_proba"):
+            classes = getattr(model, "classes_", None)
+            if classes is not None and 1 in classes:
+                return "使用 predict_proba 获取标签 1 的概率"
+            return "使用 predict_proba，取概率最大的类别"  # 兼容未显式包含 1 的场景
+
+        if hasattr(model, "decision_function"):
+            return "使用 decision_function 的分值经 sigmoid 转换为概率"
+
+        return "模型未提供概率接口，返回 0 作为兜底"
+
+    def _predict_single_model(
+        self, model_key: str, model_path: Path, X: np.ndarray
+    ) -> tuple[int, float, str]:
         model_data = self._load_model(model_path)
         model = model_data["model"]
         scaler = model_data["scaler"]
         X_scaled = scaler.transform(X) if scaler is not None else X
+        proba_method = self._probability_method(model)
         proba = self._positive_probability(model, X_scaled)
         pred = int(model.predict(X_scaled)[0])
-        return pred, proba
+        return pred, proba, proba_method
 
     def _run_inference(self) -> None:
         manual_text = self.manual_text.get("1.0", "end").strip()
@@ -271,10 +287,20 @@ class EmailClassifierApp(tk.Tk):
             # 加权概率 = sum(模型垃圾概率 * 模型权重) / 权重总和。
             for model_key, weight in MODEL_WEIGHTS.items():
                 path = self.model_paths[model_key]
-                pred, proba = self._predict_single_model(model_key, path, X)
+                pred, proba, proba_method = self._predict_single_model(
+                    model_key, path, X
+                )
                 weighted_sum += proba * weight
                 per_model_results.append(
-                    f"{model_key} -> 判定: {'垃圾' if pred == 1 else '正常'} | 概率: {proba*100:0.2f}% | 权重: {weight*100:0.0f}% | 路径: {path}"
+                    " | ".join(
+                        [
+                            f"{model_key} -> 判定: {'垃圾' if pred == 1 else '正常'}",
+                            f"概率: {proba*100:0.2f}%",
+                            f"权重: {weight*100:0.0f}%",
+                            proba_method,
+                            f"路径: {path}",
+                        ]
+                    )
                 )
 
             agg_proba = weighted_sum / total_weight
@@ -302,6 +328,11 @@ class EmailClassifierApp(tk.Tk):
         lines.extend([
             "================ 各模型判定详情 ================",
             *per_model_results,
+            "",
+            "================ 概率计算说明 ================",
+            "1) 各模型先输出自身对“垃圾”标签的概率：优先使用 predict_proba；若无则用 decision_function 分值经 sigmoid 转换。",
+            "2) 本界面将上述概率按占比加权求平均，得到最终展示的垃圾邮件概率（加权概率 = ∑ 概率×权重 / 权重总和）。",
+            "3) 若模型未提供概率接口，则返回 0 作为兜底。",
             "",
         ])
 
