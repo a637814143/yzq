@@ -213,12 +213,19 @@ class EmailClassifierApp(tk.Tk):
         if path in self.loaded_models:
             return self.loaded_models[path]
         loaded = joblib.load(path)
-        # 检查是否是包含model和scaler的字典
-        if isinstance(loaded, dict) and 'model' in loaded and 'scaler' in loaded:
-            model_data = {'model': loaded['model'], 'scaler': loaded['scaler']}
+
+        # 支持以下三种格式：
+        # 1) {'model': clf, 'scaler': scaler}（带标准化器）
+        # 2) {'model': clf}（仅模型，决策树/随机森林脚本的保存格式）
+        # 3) 直接保存的模型对象
+        if isinstance(loaded, dict):
+            model = loaded.get("model", loaded)
+            scaler = loaded.get("scaler")
         else:
-            # 旧格式：直接是模型，scaler为None
-            model_data = {'model': loaded, 'scaler': None}
+            model = loaded
+            scaler = None
+
+        model_data = {"model": model, "scaler": scaler}
         self.loaded_models[path] = model_data
         return model_data
 
