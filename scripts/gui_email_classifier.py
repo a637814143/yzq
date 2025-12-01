@@ -19,11 +19,19 @@ DEFAULT_NB_MODEL = Path(
 DEFAULT_SVM_MODEL = Path(
     os.environ.get("SVM_MODEL_OUTPUT", r"E:\\毕业设计\\新测试\\支持向量机SVM算法\\svm_model.joblib")
 )
+DEFAULT_LR_MODEL = Path(
+    os.environ.get("LR_MODEL_OUTPUT", r"E:\\毕业设计\\新测试\\逻辑回归算法模型\\lr_model.joblib")
+)
+DEFAULT_RF_MODEL = Path(
+    os.environ.get("RF_MODEL_OUTPUT", r"E:\\毕业设计\\新测试\\随机森林算法模型\\rf_model.joblib")
+)
 
-# 双模型融合的权重（朴素贝叶斯 60%，SVM 40%）
+# 四模型加权占比（总和为 1.0）
 MODEL_WEIGHTS: dict[str, float] = {
-    "朴素贝叶斯模型": 0.6,
-    "SVM 模型": 0.4,
+    "随机森林模型": 0.40,
+    "逻辑回归模型": 0.15,
+    "SVM 模型": 0.15,
+    "朴素贝叶斯模型": 0.30,
 }
 
 
@@ -39,6 +47,8 @@ class EmailClassifierApp(tk.Tk):
         self.model_paths: dict[str, Path] = {
             "朴素贝叶斯模型": DEFAULT_NB_MODEL,
             "SVM 模型": DEFAULT_SVM_MODEL,
+            "逻辑回归模型": DEFAULT_LR_MODEL,
+            "随机森林模型": DEFAULT_RF_MODEL,
         }
         self.loaded_models: dict[Path, object] = {}
 
@@ -49,10 +59,7 @@ class EmailClassifierApp(tk.Tk):
 
         header = ttk.Label(
             self,
-            text=(
-                "上传邮件（.eml/.txt/.text 等文本）或直接粘贴邮件正文，"
-                "支持双模型加权融合：朴素贝叶斯 60%，SVM 40%"
-            ),
+            text="上传邮件或粘贴正文，使用朴素贝叶斯 / SVM / 逻辑回归 / 随机森林 四模型加权识别",
             font=("微软雅黑", 12, "bold"),
         )
         header.pack(anchor="w", **padding)
@@ -73,37 +80,35 @@ class EmailClassifierApp(tk.Tk):
         self.manual_text = tk.Text(text_frame, height=6, wrap="word", font=("等线", 11))
         self.manual_text.pack(fill="x", padx=6, pady=4)
 
-        model_frame = ttk.LabelFrame(self, text="3. 模型路径（默认双模型加权融合）")
+        model_frame = ttk.LabelFrame(self, text="3. 确认模型路径与占比")
         model_frame.pack(fill="x", **padding)
         ttk.Label(
             model_frame,
-            text="将按 60% 朴素贝叶斯 + 40% SVM 进行融合。",
+            text=(
+                "将按以下占比对四个模型的垃圾邮件概率加权，得到最终判定：\n"
+                "随机森林 40% | 逻辑回归 15% | SVM 15% | 朴素贝叶斯 30%"
+            ),
         ).grid(row=0, column=0, columnspan=3, sticky="w", padx=6, pady=(4, 6))
 
         self.model_labels: dict[str, ttk.Label] = {}
-        for idx, (name, key) in enumerate(
-            [
-                ("朴素贝叶斯", "朴素贝叶斯模型"),
-                ("SVM", "SVM 模型"),
-            ]
-        ):
-            ttk.Label(model_frame, text=f"{name} 模型路径:").grid(
-                row=idx + 1, column=0, sticky="w", padx=6, pady=4
+        for idx, key in enumerate(self.model_paths.keys(), start=1):
+            ttk.Label(model_frame, text=f"{key} 路径:").grid(
+                row=idx, column=0, sticky="w", padx=6, pady=4
             )
             label = ttk.Label(model_frame, text=str(self.model_paths[key]))
-            label.grid(row=idx + 1, column=1, sticky="w", padx=6, pady=4)
+            label.grid(row=idx, column=1, sticky="w", padx=6, pady=4)
             self.model_labels[key] = label
             ttk.Button(
                 model_frame,
                 text="浏览",
                 command=lambda k=key: self._choose_model(k),
-            ).grid(row=idx + 1, column=2, sticky="w", padx=6, pady=4)
+            ).grid(row=idx, column=2, sticky="w", padx=6, pady=4)
 
         action_frame = ttk.Frame(self)
         action_frame.pack(fill="x", **padding)
         ttk.Button(
             action_frame,
-            text="测试",
+            text="开始识别",
             command=self._run_inference,
             width=12,
         ).pack(side="left", padx=6)
@@ -112,7 +117,7 @@ class EmailClassifierApp(tk.Tk):
         self.result_box.pack(fill="both", expand=True, **padding)
         self.result_box.insert(
             "1.0",
-            "结果将在此显示。请先上传邮件文件或粘贴文本（文本文件可直接选择），然后点击测试执行双模型融合预测。\n",
+            "结果将在此显示。请先上传邮件文件或粘贴文本（文本文件可直接选择），然后点击“开始识别”执行四模型加权判断。\n",
         )
         self.result_box.config(state="disabled")
 
@@ -148,7 +153,9 @@ class EmailClassifierApp(tk.Tk):
         self.result_box.see("end")
         self.result_box.config(state="disabled")
 
-    def _load_email_features(self, path: Path | None, manual_text: str) -> tuple[np.ndarray, dict]:
+    def _load_email_features(
+        self, path: Path | None, manual_text: str
+    ) -> tuple[np.ndarray, dict]:
         if path:
             ext = path.suffix.lower()
             if ext == ".eml":
@@ -178,7 +185,7 @@ class EmailClassifierApp(tk.Tk):
             }
         feat_dict = text_features.extract_text_features(parsed)
         X, _, _ = vectorization.vectorize_feature_list([feat_dict])
-        return X, {"preview": body_preview, "parsed": parsed}
+        return X, {"preview": body_preview, "parsed": parsed, "features": feat_dict}
 
     def _positive_probability(self, model: object, X: np.ndarray) -> float:
         classes = getattr(model, "classes_", None)
@@ -201,14 +208,71 @@ class EmailClassifierApp(tk.Tk):
         if path in self.loaded_models:
             return self.loaded_models[path]
         loaded = joblib.load(path)
-        # 检查是否是包含model和scaler的字典
-        if isinstance(loaded, dict) and 'model' in loaded and 'scaler' in loaded:
-            model_data = {'model': loaded['model'], 'scaler': loaded['scaler']}
+
+        # 支持以下三种格式：
+        # 1) {'model': clf, 'scaler': scaler}（带标准化器）
+        # 2) {'model': clf}（仅模型，决策树/随机森林脚本的保存格式）
+        # 3) 直接保存的模型对象
+        if isinstance(loaded, dict):
+            model = loaded.get("model", loaded)
+            scaler = loaded.get("scaler")
         else:
-            # 旧格式：直接是模型，scaler为None
-            model_data = {'model': loaded, 'scaler': None}
+            model = loaded
+            scaler = None
+
+        model_data = {"model": model, "scaler": scaler}
         self.loaded_models[path] = model_data
         return model_data
+
+    def _probability_method(self, model: object) -> str:
+        """给出当前模型输出“垃圾”概率的依据说明。"""
+        if hasattr(model, "predict_proba"):
+            classes = getattr(model, "classes_", None)
+            if classes is not None and 1 in classes:
+                return "概率来源: predict_proba，直接取标签 1 对应的概率"
+            return "概率来源: predict_proba，未显式包含标签 1 时取最大概率的类别"  # 兼容未显式包含 1 的场景
+
+        if hasattr(model, "decision_function"):
+            return "概率来源: decision_function 得分经 sigmoid 转换"
+
+        return "概率来源: 模型未提供概率接口，返回 0 兜底"
+
+    def _feature_basis(self, feat: dict) -> str:
+        """根据提取的文本特征给出简要判定依据。"""
+
+        risk_kw_total = int(feat.get("risk_kw_total", 0))
+        url_count = int(feat.get("url_count", 0))
+        shortlink_count = int(feat.get("shortlink_count", 0))
+        money_symbol_count = int(feat.get("money_symbol_count", 0))
+        subj_risk = "是" if feat.get("subject_risk_kw") else "否"
+        top_unigrams = feat.get("subj_top_unigrams") or []
+        top_unigram_desc = (
+            "；高频词: "
+            + "、".join(f"{tok}({cnt})" for tok, cnt in top_unigrams)
+            if top_unigrams
+            else "；高频词: 无明显高频词"
+        )
+
+        parts = [
+            f"风险关键词出现 {risk_kw_total} 次",  # 风险词越多通常越偏向垃圾
+            f"URL 数量 {url_count} (短链 {shortlink_count})",  # 带链接/短链可能与垃圾相关
+            f"金额符号 {money_symbol_count} 个",  # 金额符号较多可能暗示诈骗或推销
+            f"主题含风险词: {subj_risk}",
+        ]
+
+        return "依据: " + "；".join(parts) + top_unigram_desc
+
+    def _predict_single_model(
+        self, model_key: str, model_path: Path, X: np.ndarray
+    ) -> tuple[int, float, str]:
+        model_data = self._load_model(model_path)
+        model = model_data["model"]
+        scaler = model_data["scaler"]
+        X_scaled = scaler.transform(X) if scaler is not None else X
+        proba_method = self._probability_method(model)
+        proba = self._positive_probability(model, X_scaled)
+        pred = int(model.predict(X_scaled)[0])
+        return pred, proba, proba_method
 
     def _run_inference(self) -> None:
         manual_text = self.manual_text.get("1.0", "end").strip()
@@ -225,32 +289,47 @@ class EmailClassifierApp(tk.Tk):
                 messagebox.showerror("邮件不存在", f"未找到邮件文件: {email_path}")
                 return
 
-        missing = [name for name in MODEL_WEIGHTS if not self.model_paths[name].exists()]
-        if missing:
-            messagebox.showerror(
-                "模型不存在",
-                "未找到以下模型文件：\n" + "\n".join(f"- {m}: {self.model_paths[m]}" for m in missing),
-            )
-            return
-
         try:
             X, meta = self._load_email_features(email_path, manual_text)
-            results = []
-            fused_proba = 0.0
-            total_weight = 0.0
+            feature_basis = self._feature_basis(meta["features"])
+            missing_models = [
+                key for key, path in self.model_paths.items() if not path.exists()
+            ]
+            if missing_models:
+                messagebox.showerror(
+                    "模型不存在",
+                    "以下模型文件未找到，请确认路径后重试:\n" + "\n".join(missing_models),
+                )
+                return
+
+            per_model_results: list[str] = []
+            weighted_sum = 0.0
+            total_weight = sum(MODEL_WEIGHTS.values()) or 1.0
+
+            # 逐个模型生成“垃圾”概率，并按设定权重求加权平均：
+            # 加权概率 = sum(模型垃圾概率 * 模型权重) / 权重总和。
             for model_key, weight in MODEL_WEIGHTS.items():
-                model_path = self.model_paths[model_key]
-                model_data = self._load_model(model_path)
-                model = model_data["model"]
-                scaler = model_data["scaler"]
-                X_scaled = scaler.transform(X) if scaler is not None else X
-                proba = self._positive_probability(model, X_scaled)
-                pred = int(model.predict(X_scaled)[0])
-                fused_proba += weight * proba
-                total_weight += weight
-                results.append((model_key, model_path, pred, proba, weight))
-            proba = fused_proba / total_weight if total_weight else 0.0
-            pred = int(proba >= 0.5)
+                path = self.model_paths[model_key]
+                pred, proba, proba_method = self._predict_single_model(
+                    model_key, path, X
+                )
+                weighted_sum += proba * weight
+                per_model_results.append(
+                    " | ".join(
+                        [
+                            f"{model_key} -> 判定: {'垃圾' if pred == 1 else '正常'}",
+                            f"概率: {proba*100:0.2f}%",
+                            f"权重: {weight*100:0.0f}%",
+                            proba_method,
+                            feature_basis,
+                            f"路径: {path}",
+                        ]
+                    )
+                )
+
+            agg_proba = weighted_sum / total_weight
+            pred = 1 if agg_proba >= 0.5 else 0
+            proba = agg_proba
         except Exception as exc:  # noqa: BLE001
             messagebox.showerror("预测失败", f"处理或预测时出错: {exc}")
             return
@@ -263,19 +342,24 @@ class EmailClassifierApp(tk.Tk):
         source_desc = str(email_path) if email_path else "粘贴文本（未选择文件）"
 
         lines = [
-            "================ 预测结果（加权融合） ================",
-            "融合权重: 朴素贝叶斯 60% | SVM 40%",
+            "================ 预测结果（四模型加权） ================",
+            "占比: 随机森林40% + 逻辑回归15% + SVM 15% + 朴素贝叶斯30%",
             f"输入来源: {source_desc}",
             f"判定: {label_text} | 概率: {percentage:0.2f}%",
             "",
-            "各模型输出：",
         ]
 
-        for model_key, model_path, m_pred, m_proba, weight in results:
-            model_label = "垃圾邮件" if m_pred == 1 else "正常邮件"
-            lines.append(
-                f"- {model_key} ({model_path}) | 权重 {weight:.2f} | 判定: {model_label} | 概率: {m_proba*100:0.2f}%"
-            )
+        lines.extend([
+            "================ 各模型判定详情 ================",
+            *per_model_results,
+            "",
+            "================ 概率计算说明 ================",
+            "1) 单模型概率：优先用 predict_proba 读取“标签为 1(垃圾)”的列；若模型无标签 1 列，则取概率最大的类别。",
+            "2) 若模型不支持 predict_proba 但有 decision_function，则取分值并经过 sigmoid 变换得到概率。",
+            "3) 若模型既无 predict_proba 也无 decision_function，则返回 0 作为兜底概率。",
+            "4) 加权融合：将四个模型的垃圾概率乘以各自权重求和，再除以权重总和，得到最终展示的垃圾邮件概率。",
+            "",
+        ])
 
         lines.extend(
             [
