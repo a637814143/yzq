@@ -158,7 +158,9 @@ class EmailClassifierApp(tk.Tk):
         self.result_box.see("end")
         self.result_box.config(state="disabled")
 
-    def _load_email_features(self, path: Path | None, manual_text: str) -> tuple[np.ndarray, dict]:
+    def _load_email_features(
+        self, path: Path | None, manual_text: str
+    ) -> tuple[np.ndarray, dict]:
         if path:
             ext = path.suffix.lower()
             if ext == ".eml":
@@ -188,7 +190,7 @@ class EmailClassifierApp(tk.Tk):
             }
         feat_dict = text_features.extract_text_features(parsed)
         X, _, _ = vectorization.vectorize_feature_list([feat_dict])
-        return X, {"preview": body_preview, "parsed": parsed}
+        return X, {"preview": body_preview, "parsed": parsed, "features": feat_dict}
 
     def _positive_probability(self, model: object, X: np.ndarray) -> float:
         classes = getattr(model, "classes_", None)
@@ -240,6 +242,31 @@ class EmailClassifierApp(tk.Tk):
 
         return "概率来源: 模型未提供概率接口，返回 0 兜底"
 
+    def _feature_basis(self, feat: dict) -> str:
+        """根据提取的文本特征给出简要判定依据。"""
+
+        risk_kw_total = int(feat.get("risk_kw_total", 0))
+        url_count = int(feat.get("url_count", 0))
+        shortlink_count = int(feat.get("shortlink_count", 0))
+        money_symbol_count = int(feat.get("money_symbol_count", 0))
+        subj_risk = "是" if feat.get("subject_risk_kw") else "否"
+        top_unigrams = feat.get("subj_top_unigrams") or []
+        top_unigram_desc = (
+            "；高频词: "
+            + "、".join(f"{tok}({cnt})" for tok, cnt in top_unigrams)
+            if top_unigrams
+            else "；高频词: 无明显高频词"
+        )
+
+        parts = [
+            f"风险关键词出现 {risk_kw_total} 次",  # 风险词越多通常越偏向垃圾
+            f"URL 数量 {url_count} (短链 {shortlink_count})",  # 带链接/短链可能与垃圾相关
+            f"金额符号 {money_symbol_count} 个",  # 金额符号较多可能暗示诈骗或推销
+            f"主题含风险词: {subj_risk}",
+        ]
+
+        return "依据: " + "；".join(parts) + top_unigram_desc
+
     def _predict_single_model(
         self, model_key: str, model_path: Path, X: np.ndarray
     ) -> tuple[int, float, str]:
@@ -269,6 +296,7 @@ class EmailClassifierApp(tk.Tk):
 
         try:
             X, meta = self._load_email_features(email_path, manual_text)
+            feature_basis = self._feature_basis(meta["features"])
             missing_models = [
                 key for key, path in self.model_paths.items() if not path.exists()
             ]
@@ -298,6 +326,7 @@ class EmailClassifierApp(tk.Tk):
                             f"概率: {proba*100:0.2f}%",
                             f"权重: {weight*100:0.0f}%",
                             proba_method,
+                            feature_basis,
                             f"路径: {path}",
                         ]
                     )
