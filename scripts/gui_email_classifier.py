@@ -67,12 +67,12 @@ class EmailClassifierApp(tk.Tk):
 
         header = ttk.Label(
             self,
-            text="上传邮件文件（含文本/EML），使用朴素贝叶斯 / SVM / 逻辑回归 / 随机森林 / 决策树 五模型加权识别",
+            text="上传邮件文件（EML 或文本文件），使用朴素贝叶斯 / SVM / 逻辑回归 / 随机森林 / 决策树 五模型加权识别",
             font=("微软雅黑", 12, "bold"),
         )
         header.pack(anchor="w", **padding)
 
-        file_frame = ttk.LabelFrame(self, text="1. 邮件上传（支持 .eml / .txt 等文本格式）")
+        file_frame = ttk.LabelFrame(self, text="1. 邮件上传（支持 .eml / 文本格式，如 .txt/.md/.log 等）")
         file_frame.pack(fill="x", **padding)
         ttk.Button(file_frame, text="选择文件", command=self._choose_email).pack(
             side="left", padx=8, pady=6
@@ -125,7 +125,22 @@ class EmailClassifierApp(tk.Tk):
         path = filedialog.askopenfilename(
             title="选择邮件文件",
             filetypes=[
-                ("Email / 文本", "*.eml *.txt *.text *.log *.md"),
+                ("EML 邮件", ("*.eml", "*.emlx")),
+                (
+                    "文本文件",
+                    (
+                        "*.txt",
+                        "*.text",
+                        "*.log",
+                        "*.md",
+                        "*.csv",
+                        "*.json",
+                        "*.ini",
+                        "*.conf",
+                        "*.html",
+                        "*.htm",
+                    ),
+                ),
                 ("所有文件", "*.*"),
             ],
         )
@@ -155,7 +170,7 @@ class EmailClassifierApp(tk.Tk):
 
     def _load_email_features(self, path: Path) -> tuple[np.ndarray, dict]:
         ext = path.suffix.lower()
-        if ext == ".eml":
+        if ext in {".eml", ".emlx"}:
             parsed = email_parser.parse_eml(str(path))
             body_preview = parsed.get("body", "") or ""
         else:
