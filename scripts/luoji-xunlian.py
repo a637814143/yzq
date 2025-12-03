@@ -98,6 +98,7 @@ def train_logistic_regression(
     penalty: str,
     solver: str,
     max_iter: int,
+    tol: float,
     validation_size: float,
     test_size: float,
     random_state: int,
@@ -160,11 +161,12 @@ def train_logistic_regression(
         penalty=penalty,
         solver=solver,
         max_iter=max_iter,
+        tol=tol,
         class_weight=class_weight if class_weight else None,
         n_jobs=-1,
         random_state=random_state,
     )
-    print(f"已选择 solver={solver}, penalty={penalty}, C={C}。")
+    print(f"已选择 solver={solver}, penalty={penalty}, C={C}, max_iter={max_iter}, tol={tol}。")
 
     print("[4/4] 正在训练模型……")
     model.fit(X_train_scaled, y_train)
@@ -356,8 +358,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-iter",
         type=int,
-        default=1000,
-        help="最大迭代次数。",
+        default=5000,
+        help="最大迭代次数，默认更高以避免过早收敛。",
+    )
+    parser.add_argument(
+        "--tol",
+        type=float,
+        default=1e-5,
+        help="收敛容忍度 (tol)，数值越小迭代越充分。",
     )
     parser.add_argument(
         "--class-weight",
@@ -424,6 +432,7 @@ def main(argv: list[str] | None = None) -> None:
             penalty=args.penalty,
             solver=args.solver,
             max_iter=args.max_iter,
+            tol=args.tol,
             validation_size=args.validation_size,
             test_size=args.test_size,
             random_state=args.random_state,

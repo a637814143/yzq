@@ -48,7 +48,7 @@ class EmailClassifierApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("垃圾邮件识别窗口")
-        self.geometry("900x650")
+        self.geometry("900x750")
 
         self.selected_email: Path | None = None
         self.model_paths: dict[str, Path] = {
@@ -67,12 +67,16 @@ class EmailClassifierApp(tk.Tk):
 
         header = ttk.Label(
             self,
-            text="上传邮件文件（EML 或文本文件），使用朴素贝叶斯 / SVM / 逻辑回归 / 随机森林 / 决策树 五模型加权识别",
+            text=(
+                "上传邮件文件或直接粘贴正文，使用朴素贝叶斯 / SVM / 逻辑回归 / 随机森林 / 决策树 五模型加权识别"
+            ),
             font=("微软雅黑", 12, "bold"),
         )
         header.pack(anchor="w", **padding)
 
-        file_frame = ttk.LabelFrame(self, text="1. 邮件上传（支持 .eml / 文本格式，如 .txt/.md/.log 等）")
+        file_frame = ttk.LabelFrame(
+            self, text="1. 邮件上传（支持 .eml / 文本格式，如 .txt/.md/.log 等）"
+        )
         file_frame.pack(fill="x", **padding)
         ttk.Button(file_frame, text="选择文件", command=self._choose_email).pack(
             side="left", padx=8, pady=6
@@ -80,7 +84,16 @@ class EmailClassifierApp(tk.Tk):
         self.email_label = ttk.Label(file_frame, text="未选择文件")
         self.email_label.pack(side="left", padx=8)
 
-        model_frame = ttk.LabelFrame(self, text="2. 确认模型路径与占比")
+        paste_frame = ttk.LabelFrame(self, text="2. 粘贴邮件正文（可选，支持直接从客户端复制）")
+        paste_frame.pack(fill="both", expand=False, **padding)
+        self.paste_text = tk.Text(paste_frame, height=6, wrap="word", font=("等线", 11))
+        self.paste_text.pack(fill="both", expand=True, padx=8, pady=6)
+        ttk.Label(
+            paste_frame,
+            text="若同时提供文件与粘贴内容，将优先使用粘贴的正文进行识别。",
+        ).pack(anchor="w", padx=8, pady=(0, 6))
+
+        model_frame = ttk.LabelFrame(self, text="3. 确认模型路径与占比")
         model_frame.pack(fill="x", **padding)
         ttk.Label(
             model_frame,
@@ -117,7 +130,7 @@ class EmailClassifierApp(tk.Tk):
         self.result_box.pack(fill="both", expand=True, **padding)
         self.result_box.insert(
             "1.0",
-            "结果将在此显示。请上传邮件文件（支持 EML 或文本），然后点击“开始识别”执行五模型加权判断。\n",
+            "结果将在此显示。请上传邮件文件（支持 EML 或文本）或直接粘贴正文，然后点击“开始识别”执行五模型加权判断。\n",
         )
         self.result_box.config(state="disabled")
 
@@ -187,6 +200,20 @@ class EmailClassifierApp(tk.Tk):
         feat_dict = text_features.extract_text_features(parsed)
         X, _, _ = vectorization.vectorize_feature_list([feat_dict])
         return X, {"preview": body_preview, "parsed": parsed, "features": feat_dict}
+
+    def _load_pasted_email_features(self, content: str) -> tuple[np.ndarray, dict]:
+        parsed = {
+            "path": "(粘贴文本)",
+            "subject": "粘贴内容",  # 无文件名时以提示文案代替
+            "from": "",
+            "to": [],
+            "body": content,
+            "raw": None,
+            "attachments": 0,
+        }
+        feat_dict = text_features.extract_text_features(parsed)
+        X, _, _ = vectorization.vectorize_feature_list([feat_dict])
+        return X, {"preview": content, "parsed": parsed, "features": feat_dict}
 
     def _positive_probability(self, model: object, X: np.ndarray) -> float:
         classes = getattr(model, "classes_", None)
@@ -286,17 +313,23 @@ class EmailClassifierApp(tk.Tk):
         return pred, proba, effective_proba, proba_method
 
     def _run_inference(self) -> None:
-        if not self.selected_email:
-            messagebox.showwarning("缺少邮件", "请上传邮件文件后再测试（支持 EML 或文本格式）。")
+        pasted_content = self.paste_text.get("1.0", "end").strip()
+        has_pasted = bool(pasted_content)
+
+        if not has_pasted and not self.selected_email:
+            messagebox.showwarning("缺少邮件", "请上传邮件文件或粘贴正文后再测试。")
             return
 
-        email_path = self.selected_email
+        email_path = self.selected_email if not has_pasted else None
         if email_path and not email_path.exists():
             messagebox.showerror("邮件不存在", f"未找到邮件文件: {email_path}")
             return
 
         try:
-            X, meta = self._load_email_features(email_path)
+            if has_pasted:
+                X, meta = self._load_pasted_email_features(pasted_content)
+            else:
+                X, meta = self._load_email_features(email_path)
             feature_basis = self._feature_basis(meta["features"])
             missing_models = [
                 key for key, path in self.model_paths.items() if not path.exists()
@@ -349,7 +382,7 @@ class EmailClassifierApp(tk.Tk):
         parsed = meta["parsed"]
         preview = (meta.get("preview") or "").strip()
 
-        source_desc = str(email_path)
+        source_desc = "粘贴文本内容" if has_pasted else str(email_path)
 
         lines = [
             "================ 预测结果（五模型加权） ================",
